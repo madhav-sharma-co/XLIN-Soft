@@ -57,7 +57,7 @@ you have `paru` or `yay`).
 | Wallpapers      | Six gradients (Light, Dark, Dark Blue, Light Blue, Dark Green, Light Pink). Add your own or remove them in **Settings → Desktop → Wallpapers**, or with `xlin wallpapers` |
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
 | Settings        | General, Connectivity, Desktop, Status Bar and Run Bar, Launcher, Personalization (theme, accent, fonts, text size, animations, opacity, wallpaper, cursor), About (update, reset) |
-| Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+U) |
+| Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+T) |
 | Apps            | Terminal with tabs, Files, SysMon, Media player, Store (pacman and AUR) and SysDeb (checks, logs, repairs) |
 | Windows         | Every app has hide, fullscreen and close buttons, can be resized by its edge or Super+right-drag, and fills the screen on a double-click of its title bar. Super+H brings hidden windows back, Super+Shift+D shows the desktop |
 | Look and feel   | Light and dark, accent colours, system font and size, Xlin-soft cursor and icons, eight wallpapers (Super+W), animations on or off |
@@ -70,11 +70,11 @@ Press **Super+/** or run `xlin keys` to see them all. Every key is the first let
 | Keys | Action | Keys | Action |
 |------|--------|------|--------|
 | Super+Space | Launcher | Super+Q | Quit (close) window |
-| Super+Return, Super+T | Terminal | Super+F | Fullscreen |
+| Super+Return | Terminal | Super+F | Fullscreen |
 | Super+E | Files (Explorer) | Super+Shift+F | Floating on / off |
 | Super+S | Settings | Super+H | Bring back hidden windows |
 | Super+C | Control panel | Super+Shift+D | Show the desktop |
-| Super+U | Utilities (tools) | Alt+Tab | Next window |
+| Super+T | Tools | Alt+Tab | Next window |
 | Super+M | SysMon | Super+arrows | Move focus |
 | Super+N | Notes (Shift: quick note) | Super+Shift+arrows | Move the window |
 | Super+B | Battery and power mode | Super+Ctrl+arrows | Resize the window |

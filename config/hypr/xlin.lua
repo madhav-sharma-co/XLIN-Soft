@@ -75,13 +75,13 @@ hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session|Wifi|Blu
 -- Every key is the first letter of what it does.
 --   APPS                               WINDOWS
 --   Super+Space   launcher             Super+Q            close window (Quit)
---   Super+Return  terminal (Super+T)   Super+F            fullscreen
+--   Super+Return  terminal             Super+F            fullscreen
 --   Super+E       files (Explorer)     Super+Shift+F      floating on/off (Float)
 --                                      Alt+Tab            next window
 --                                      Super+arrows       move focus
 --   Super+S       Settings             Super+Shift+arrows move the window
 --   Super+C       Control panel        Super+Ctrl+arrows  resize the window
---   Super+U       Utilities (tools)    Super+drag         move (left) / resize (right)
+--   Super+T       Tools (calculator…)  Super+drag         move (left) / resize (right)
 --   Super+N       Notes (Shift: quick note)
 --   Super+B       Battery menu
 --   SYSTEM                             WORKSPACES
@@ -108,11 +108,10 @@ end
 -- apps
 run("SUPER + SPACE", "xlin launcher")
 run("SUPER + Return", terminal)
-run("SUPER + T", terminal)
 run("SUPER + E", "xlin files")
 run("SUPER + S", "xlin settings")
 run("SUPER + C", "xlin panel")
-run("SUPER + U", "xlin tools")
+run("SUPER + T", "xlin tools")
 run("SUPER + M", "xlin monitor")
 run("SUPER + H", "xlin unhide")
 run("SUPER + SHIFT + D", "xlin showdesktop")

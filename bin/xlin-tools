@@ -1685,7 +1685,7 @@ MANUAL_TEXT = [
           "animations and a complete set of its own apps."),
     ("h", "The basics"),
     ("p", "Super + Space opens the Launcher: search, pinned and recent apps, and every app.\n"
-          "Super + Return opens the Terminal, Super + E Files, Super + S Settings, Super + C the control panel.\n"
+          "Super + Return opens the Terminal, Super + T Tools, Super + E Files, Super + S Settings, Super + C the control panel.\n"
           "Super + Q closes a window, Super + F makes it fullscreen. Press Super + / to see every shortcut."),
     ("h", "Your desktop"),
     ("p", "Top bar: this X button (the manual), the current app, and on the right Settings, Tools, Wi-Fi, "

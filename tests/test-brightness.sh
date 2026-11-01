@@ -59,4 +59,12 @@ $X sound toggle >/dev/null
 chk "state muted: true after toggle"   "[[ \$($X state muted) == true ]]"
 $X sound toggle >/dev/null
 chk "state muted: false again"         "[[ \$($X state muted) == false ]]"
+$X silent on >/dev/null
+chk "silent on mutes"                  "[[ \$($X state silent) == true ]]"
+$X silent toggle >/dev/null
+chk "silent toggle unmutes"            "[[ \$($X state silent) == false ]]"
+$X silent toggle >/dev/null
+chk "silent toggle mutes again"        "[[ \$($X state silent) == true ]]"
+chk "panel silent button is a small round one" "python3 -c \"import json;a=json.load(open('config/swaync/config.json'))['widget-config']['buttons-grid#sound'];assert a['buttons-per-row']>=4 and len(a['actions'])==1 and a['actions'][0]['command']=='xlin silent toggle'\""
+chk "Super+T is Tools, Return is the terminal" "grep -q 'run(\"SUPER + T\", \"xlin tools\")' config/hypr/xlin.lua && ! grep -q 'SUPER + T\", terminal' config/hypr/xlin.lua && grep -q 'bind  = SUPER, T, exec, xlin tools' config/hypr/xlin.conf && grep -q 'bind  = SUPER, Return, exec, \$terminal' config/hypr/xlin.conf && ! grep -q 'SUPER, T, exec, \$terminal' config/hypr/xlin.conf"
 exit $fail

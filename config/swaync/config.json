@@ -105,14 +105,14 @@
       "min": 1
     },
     "buttons-grid#sound": {
-      "buttons-per-row": 1,
+      "buttons-per-row": 5,
       "actions": [
         {
-          "label": "  Mute sound",
-          "command": "xlin sound toggle",
+          "label": "",
+          "command": "xlin silent toggle",
           "type": "toggle",
           "active": false,
-          "update-command": "xlin state muted"
+          "update-command": "xlin state silent"
         }
       ]
     }

@@ -69,6 +69,12 @@
   opacity: 0.9;
 }
 
+/* silent mode: a small round button (the bell), not a wide one */
+.widget-buttons-grid#sound > flowbox > flowboxchild > button,
+#sound > flowbox > flowboxchild > button {
+  min-width: 44px; min-height: 44px; padding: 0; border-radius: 50%;
+  margin: 4px;
+}
 /* the volume and brightness sliders: each one on its own soft card, with a round handle */
 .widget-volume, .widget-backlight {
   background: @C_SOFT@;
