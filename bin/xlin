@@ -858,6 +858,33 @@ cmd_pin() {
   dock_restart
 }
 
+# xlin pinpath <runbar|launcher|both> <file-or-folder>: pin a real file or folder, like an app (Run Bar / Launcher).
+# It writes a small launcher entry for the path (~/.local/share/applications/xlin-path-*.desktop) and pins that.
+cmd_pinpath() {
+  local where="${1:-}" path="${2:-}" id name icon exec_cmd f
+  [[ "$where" =~ ^(runbar|launcher|both)$ && -n "$path" ]] || { echo "usage: xlin pinpath <runbar|launcher|both> <file-or-folder>"; return 1; }
+  path="$(realpath -m -- "$path")"
+  [[ -e "$path" ]] || { echo "not found: $path"; return 1; }
+  # characters that would need special escaping inside a launcher entry are not supported
+  if [[ "$path" == *[\"\\\$\`%]* || "$path" == *$'\n'* ]]; then echo "this name has characters that cannot be pinned: $path"; return 1; fi
+  id="xlin-path-$(printf '%s' "$path" | md5sum | cut -c1-10)"
+  name="$(basename "$path")"
+  if [[ -d "$path" ]]; then icon=folder; exec_cmd="xlin files \"$path\""
+  else icon=text-x-generic; exec_cmd="xdg-open \"$path\""; fi
+  mkdir -p "$HOME/.local/share/applications"
+  f="$HOME/.local/share/applications/$id.desktop"
+  printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nTerminal=false\nCategories=Utility;\nX-Xlin-Path=%s\n' \
+    "$name" "$exec_cmd" "$icon" "$path" >"$f"
+  command -v update-desktop-database >/dev/null && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
+  if [[ "$where" != runbar ]]; then
+    mkdir -p "$STATE"
+    [[ -f "$STATE/launcher_pins" ]] || pins_launcher_default
+    grep -qx "$id" "$STATE/launcher_pins" || echo "$id" >>"$STATE/launcher_pins"
+  fi
+  if [[ "$where" != launcher ]]; then cmd_pin "$id"; fi
+  echo "pinned: $name"
+}
+
 cmd_unpin() {
   local id="${1:?usage: xlin unpin <desktop-id>}"
   id="${id%.desktop}"
@@ -1295,7 +1322,7 @@ restart_all() {
 cmd_reset() {
   local f
   for f in theme accent dock_autohide dock_icon cursor_size terminal desktop_off bar_hidden idle_off idle_minutes \
-           nightlight ui_font ui_size warm_off no-banner recent welcomed; do
+           nightlight ui_font ui_size warm_off no-banner recent welcomed widget_opacity; do
     rm -f "$STATE/$f"
   done
   rm -f "$XLIN_HOME/desktop.json"
@@ -2196,6 +2223,7 @@ ${B}xlin battery${R}
   xlin battery                   charge level and power mode
   xlin battery mode              show the power mode
   xlin battery mode saver|balanced|performance
+  xlin pinpath runbar|launcher|both <path>   pin a file or folder like an app
   xlin power                     open the battery dropdown (GUI)
   xlin wifi | bluetooth          quick Wi-Fi / Bluetooth dropdowns (connect, disconnect)
   xlin manual                    the Xlin-soft Manual (introduction and basics)
@@ -2304,6 +2332,7 @@ case "${1:-help}" in
   launch-app) shift; cmd_launch_app "${1:?usage: xlin launch-app <desktop-id>}" ;;
   pin)       shift; cmd_pin "${1:-}" ;;
   unpin)     shift; cmd_unpin "${1:-}" ;;
+  pinpath)   shift; cmd_pinpath "$@" ;;
   dock|runbar) shift; case "${1:-check}" in
                check) dock_check ;;
                restart|reset) part_"$1" runbar ;;

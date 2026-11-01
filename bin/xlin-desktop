@@ -11,6 +11,7 @@ import glob
 import json
 import os
 import shutil
+import uuid
 import subprocess
 import sys
 import time
@@ -51,6 +52,7 @@ ICON_SIZES = {"small": (40, 84, 92), "medium": (52, 100, 108), "large": (68, 120
 DEFAULT = {
     "icons": [{"id": "dev.xlin.Files.desktop", "x": 0, "y": 0}, {"id": "dev.xlin.Terminal.desktop", "x": 0, "y": 1}],
     "files": {},
+    "folders": [],
     "icon_size": "medium",
     "show_icons": True,
     "todo": [],
@@ -108,15 +110,17 @@ def theme_name():
 
 def desktop_css():
     dark = theme_name() == "dark"
+    alpha = widget_opacity() / 100
     k = xlin_ui.ui_scale()          # widget text follows the font size setting
     def px(n):
         return f"{round(n * k)}px"
     ink = "#f2f4fa" if dark else "#182035"
-    card = "rgba(28,30,38,.62)" if dark else "rgba(255,255,255,.66)"
+    card = f"rgba(28,30,38,{alpha:.2f})" if dark else f"rgba(255,255,255,{alpha:.2f})"
     shadow = "0 1px 3px rgba(0,0,0,.65)" if dark else "0 1px 2px rgba(255,255,255,.6)"
     return f"""
     window.xlin-desktop {{ background: transparent; }}
     .desk-label {{ color: {ink}; text-shadow: {shadow}; font-size: {px(12)}; }}
+    .desk-folder {{ background-color: alpha({ink}, .22); border-radius: 14px; padding: 5px; }}
     .desk-icon {{ padding: 8px 6px; border-radius: 12px; border: 1px solid transparent; }}
     .desk-icon:hover {{ background-color: alpha({ink}, .10); }}
     .desk-icon.selected {{ background-color: alpha({ink}, .20); border-color: alpha({ink}, .30); }}
@@ -212,8 +216,26 @@ def recent_notes(limit=3):
 
 
 def desktop_dir():
+    """The folder whose files show on the desktop. Many systems have no desktop folder set (or set it to the home
+    folder): then it is ~/Desktop, which is created when needed, so "New folder" always shows up."""
     p = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP)
-    return p if p and os.path.isdir(p) and p != HOME else None
+    if not p or p == HOME:
+        p = os.path.join(HOME, "Desktop")
+    try:
+        os.makedirs(p, exist_ok=True)
+    except OSError:
+        return None
+    return p
+
+
+def widget_opacity():
+    """How solid the widget cards are, 15-100 (Settings -> Desktop -> Widget transparency)."""
+    try:
+        with open(os.path.join(STATE, "widget_opacity")) as f:
+            v = int(f.read().strip())
+    except (OSError, ValueError):
+        v = 65
+    return max(15, min(100, v))
 
 
 def unique_path(folder, base):
@@ -263,6 +285,7 @@ class DesktopWindow(Gtk.Window):
 
         drag = Gtk.GestureDrag(button=1)
         self.drag_state = {}
+        self.just_dragged = False
         drag.connect("drag-begin", self.on_drag_begin)
         drag.connect("drag-update", self.on_drag_update)
         drag.connect("drag-end", self.on_drag_end)
@@ -271,6 +294,8 @@ class DesktopWindow(Gtk.Window):
         self.refresh_theme()
         for item in list(self.cfg["icons"]):
             self.add_app_icon(item)
+        for f in list(self.cfg["folders"]):
+            self.add_folder_icon(f)
         self.refresh_files()
         for key, _n in WIDGET_NAMES:
             self.sync_widget(key)
@@ -320,7 +345,7 @@ class DesktopWindow(Gtk.Window):
         return 0, 0
 
     def refresh_theme(self):
-        name = (theme_name(), xlin_ui.ui_scale())      # restyle on a theme or font-size change
+        name = (theme_name(), xlin_ui.ui_scale(), widget_opacity())   # restyle on a theme, font-size or transparency change
         if name != self.theme:
             self.theme = name
             try:
@@ -329,7 +354,7 @@ class DesktopWindow(Gtk.Window):
                 pass
 
     # ---- one icon on the desktop
-    def make_icon(self, key, title, gicon, store, activate, menu_items):
+    def make_icon(self, key, title, gicon, store, activate, menu_items, preview=None, single=False):
         px, cw, ch = self.metrics()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("desk-icon")
@@ -344,15 +369,16 @@ class DesktopWindow(Gtk.Window):
         label.add_css_class("desk-label")
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_max_width_chars(max(10, cw // 8))
-        box.append(img)
+        box.append(preview if preview is not None else img)
         box.append(label)
         x, y = self.grid_pos(store["x"], store["y"])
         self.fixed.put(box, x, y)
-        item = {"key": key, "box": box, "img": img, "store": store}
+        item = {"key": key, "box": box, "img": None if preview is not None else img, "store": store, "label": label}
         self.items[key] = item
         self.drag_targets[box] = (box, lambda nx, ny, it=item: self.drop_icon(it, nx, ny))
         dbl = Gtk.GestureClick(button=1)
-        dbl.connect("released", lambda g, n, _x, _y: n == 2 and activate())
+        # app folders open with one click (like on a phone); everything else with a double click
+        dbl.connect("released", lambda g, n, _x, _y: n == (1 if single else 2) and not self.just_dragged and activate())
         box.add_controller(dbl)
         rc = Gtk.GestureClick(button=3)
         rc.connect("pressed", lambda g, _n, ex, ey, it=item: self.icon_menu(g, it, ex, ey, menu_items))
@@ -386,6 +412,8 @@ class DesktopWindow(Gtk.Window):
                 gicon = Gio.ThemedIcon.new("text-x-generic")
         self.make_icon("file:" + name, name, gicon, store, lambda p=path, d=is_dir: self.open_path(p, d),
                        lambda p=path, d=is_dir: [("Open", lambda: self.open_path(p, d)),
+                                                 ("Pin to Run Bar", lambda: run(["xlin", "pinpath", "runbar", p])),
+                                                 ("Pin to Launcher", lambda: run(["xlin", "pinpath", "launcher", p])),
                                                  ("Move to Trash", lambda: self.trash_path(p))])
 
     def open_path(self, path, is_dir):
@@ -493,6 +521,8 @@ class DesktopWindow(Gtk.Window):
             return
         w = st["w"]
         w.remove_css_class("dragging")
+        self.just_dragged = True                   # the click that ends a drag must not open anything
+        GLib.timeout_add(250, lambda: setattr(self, "just_dragged", False) or False)
         x, y = self.fixed.get_child_position(w)
         self.drag_targets[w][1](x, y)
 
@@ -522,8 +552,17 @@ class DesktopWindow(Gtk.Window):
             return True
         self.anims[w] = GLib.timeout_add(16, step)
 
+    def item_at_cell(self, gx, gy, skip):
+        for k, it in self.items.items():
+            if k != skip and (it["store"]["x"], it["store"]["y"]) == (gx, gy):
+                return it
+        return None
+
     def drop_icon(self, item, x, y):
         gx, gy = self.snap(x, y)
+        other = self.item_at_cell(gx, gy, item["key"])
+        if other is not None and self.merge(item, other):
+            return
         if (gx, gy) in self.occupied(skip=item["key"]):      # cell taken: go back to where it was
             gx, gy = item["store"]["x"], item["store"]["y"]
         item["store"]["x"], item["store"]["y"] = gx, gy
@@ -544,7 +583,10 @@ class DesktopWindow(Gtk.Window):
         self.cfg["icon_size"] = name
         px, cw, ch = self.metrics()
         for it in self.items.values():
-            it["img"].set_pixel_size(px)
+            if it["img"] is not None:
+                it["img"].set_pixel_size(px)
+            elif it.get("resize"):
+                it["resize"](px)
             it["box"].set_size_request(cw - 12, ch - 8)
             self.fixed.move(it["box"], *self.grid_pos(it["store"]["x"], it["store"]["y"]))
         save_config(self.cfg)
@@ -562,6 +604,184 @@ class DesktopWindow(Gtk.Window):
         self.remove_item_widget("app:" + item["id"])
         self.cfg["icons"] = [i for i in self.cfg["icons"] if i["id"] != item["id"]]
         save_config(self.cfg)
+
+    # ---- app folders (drop one app on another, like on a phone) and real folders (drop a file on a folder)
+    def merge(self, item, other):
+        a, b = item["key"].split(":", 1)[0], other["key"].split(":", 1)[0]
+        if a in ("app", "folder") and b in ("app", "folder"):
+            moving = [item["store"]["id"]] if a == "app" else list(item["store"]["apps"])
+            if b == "folder":
+                folder = other["store"]
+            else:
+                folder = {"id": uuid.uuid4().hex[:8], "name": "Folder", "apps": [other["store"]["id"]],
+                          "x": other["store"]["x"], "y": other["store"]["y"]}
+                self.remove_shortcut(other["store"])
+                self.cfg["folders"].append(folder)
+            if a == "app":
+                self.remove_shortcut(item["store"])
+            else:
+                self.remove_item_widget(item["key"])
+                self.cfg["folders"] = [f for f in self.cfg["folders"] if f is not item["store"]]
+            for aid in moving:
+                if aid not in folder["apps"]:
+                    folder["apps"].append(aid)
+            self.redraw_folder(folder)
+            save_config(self.cfg)
+            return True
+        if a == "file" and b == "file":
+            d = desktop_dir()
+            dst = os.path.join(d, other["key"][5:]) if d else None
+            if dst and os.path.isdir(dst):
+                src = os.path.join(d, item["key"][5:])
+                try:
+                    shutil.move(src, unique_path(dst, os.path.basename(src)))
+                except (OSError, shutil.Error):
+                    return False
+                self.refresh_files()
+                return True
+        return False
+
+    def folder_preview(self, folder, px):
+        grid = Gtk.Grid(row_spacing=3, column_spacing=3, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        grid.add_css_class("desk-folder")
+        small = max(14, int(px / 2.3))
+        grid.set_size_request(px, px)
+        n = 0
+        for aid in folder["apps"]:
+            app = Gio.DesktopAppInfo.new(aid)
+            if app is None or n >= 4:
+                continue
+            img = Gtk.Image()
+            img.set_pixel_size(small)
+            if app.get_icon() is not None:
+                img.set_from_gicon(app.get_icon())
+            grid.attach(img, n % 2, n // 2, 1, 1)
+            n += 1
+        return grid
+
+    def add_folder_icon(self, folder):
+        px = self.metrics()[0]
+        key = "folder:" + folder["id"]
+        item = self.make_icon(key, folder["name"], None, folder, lambda f=folder: self.open_folder(f),
+                              lambda f=folder: [("Open", lambda: self.open_folder(f)),
+                                                ("Remove folder (apps go back to the desktop)",
+                                                 lambda: self.dissolve_folder(f))],
+                              preview=self.folder_preview(folder, px), single=True)
+        item["resize"] = lambda p, f=folder, it=item: self.resize_folder_preview(it, f, p)
+
+    def resize_folder_preview(self, item, folder, px):
+        old = item["box"].get_first_child()
+        new = self.folder_preview(folder, px)
+        item["box"].insert_child_after(new, None)
+        item["box"].remove(old)
+
+    def redraw_folder(self, folder):
+        self.remove_item_widget("folder:" + folder["id"])
+        if len(folder["apps"]) < 2:          # a folder with one app (or none) is just that app again
+            self.dissolve_folder(folder)
+        else:
+            self.add_folder_icon(folder)
+
+    def dissolve_folder(self, folder):
+        self.remove_item_widget("folder:" + folder["id"])
+        self.cfg["folders"] = [f for f in self.cfg["folders"] if f is not folder]
+        cells = [(folder["x"], folder["y"])]
+        for aid in folder["apps"]:
+            if Gio.DesktopAppInfo.new(aid) is None or any(i["id"] == aid for i in self.cfg["icons"]):
+                continue
+            gx, gy = cells.pop(0) if cells else self.free_cell()
+            item = {"id": aid, "x": gx, "y": gy}
+            if self.add_app_icon(item):
+                self.cfg["icons"].append(item)
+        save_config(self.cfg)
+
+    def open_folder(self, folder):
+        item = self.items.get("folder:" + folder["id"])
+        if item is None:
+            return
+        pop = Gtk.Popover()
+        pop.add_css_class("files-menu")
+        pop.set_parent(item["box"])
+        pop.set_has_arrow(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=12, margin_bottom=12,
+                      margin_start=14, margin_end=14)
+        name = Gtk.Entry(text=folder["name"], xalign=0.5, max_length=40)
+        name.connect("changed", lambda e: (folder.__setitem__("name", e.get_text().strip() or "Folder"),
+                                           item["label"].set_text(folder["name"])))
+        box.append(name)
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, max_children_per_line=3,
+                           min_children_per_line=min(3, len(folder["apps"])), row_spacing=6, column_spacing=6)
+        for aid in folder["apps"]:
+            app = Gio.DesktopAppInfo.new(aid)
+            if app is None:
+                continue
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            img = Gtk.Image(pixel_size=48)
+            if app.get_icon() is not None:
+                img.set_from_gicon(app.get_icon())
+            lab = Gtk.Label(label=app.get_display_name())
+            lab.set_ellipsize(Pango.EllipsizeMode.END)
+            lab.set_max_width_chars(12)
+            tile.append(img)
+            tile.append(lab)
+            b = Gtk.Button()
+            b.add_css_class("flat")
+            b.set_child(tile)
+            b.connect("clicked", lambda _b, a=app: (pop.popdown(), self.launch(a)))
+            rc = Gtk.GestureClick(button=3)
+            rc.connect("pressed", lambda g, _n, _x, _y, a=aid: (g.set_state(Gtk.EventSequenceState.CLAIMED),
+                                                              self.take_out(folder, a, pop)))
+            b.add_controller(rc)
+            flow.append(b)
+        box.append(flow)
+        hint = Gtk.Label(label="Right-click an app to take it out of the folder")
+        hint.add_css_class("tools-sub")
+        box.append(hint)
+        pop.set_child(box)
+
+        def closed(p):
+            save_config(self.cfg)
+            GLib.idle_add(lambda: (p.unparent(), False)[1])
+        pop.connect("closed", closed)
+        pop.popup()
+
+    def take_out(self, folder, aid, pop):
+        folder["apps"] = [a for a in folder["apps"] if a != aid]
+        pop.popdown()
+        gx, gy = self.free_cell()
+        item = {"id": aid, "x": gx, "y": gy}
+        if self.add_app_icon(item):
+            self.cfg["icons"].append(item)
+        GLib.idle_add(lambda: (self.redraw_folder(folder), save_config(self.cfg), False)[2])
+
+    # ---- add real files and folders to the desktop
+    def add_paths(self, paths):
+        d = desktop_dir()
+        if not d:
+            return
+        for src in paths:
+            try:
+                if os.path.realpath(os.path.dirname(src)) == os.path.realpath(d):
+                    continue                          # already on the desktop
+                os.symlink(src, unique_path(d, os.path.basename(src.rstrip("/"))))
+            except OSError:
+                pass
+        self.refresh_files()
+
+    def add_files_dialog(self, folders):
+        dlg = Gtk.FileDialog(title="Add folders to the desktop" if folders else "Add files to the desktop")
+
+        def done(d, res):
+            try:
+                files = d.select_multiple_folders_finish(res) if folders else d.open_multiple_finish(res)
+            except GLib.Error:
+                return
+            self.add_paths([files.get_item(i).get_path() for i in range(files.get_n_items())
+                            if files.get_item(i).get_path()])
+        if folders:
+            dlg.select_multiple_folders(None, None, done)
+        else:
+            dlg.open_multiple(None, None, done)
 
     def new_folder(self):
         d = desktop_dir()
@@ -904,6 +1124,8 @@ class DesktopWindow(Gtk.Window):
         def build(box, pop):
             self.item(box, pop, "Apps and widgets…", self.open_gallery)
             self.item(box, pop, "New folder", self.new_folder)
+            self.item(box, pop, "Add files…", lambda: self.add_files_dialog(False))
+            self.item(box, pop, "Add folders…", lambda: self.add_files_dialog(True))
             box.append(Gtk.Separator())
             self.item(box, pop, "Next wallpaper", lambda: run(["xlin", "wallpaper", "next"]))
             self.item(box, pop, "Choose wallpaper…", self.choose_wallpaper)
