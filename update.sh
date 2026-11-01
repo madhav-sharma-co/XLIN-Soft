@@ -16,6 +16,9 @@ echo "$SRC" >"$XLIN_HOME/state/source"
 cp -r "$SRC/themes" "$SRC/templates" "$XLIN_HOME/"
 mkdir -p "$XLIN_HOME/wallpapers"
 cp "$SRC"/assets/wallpapers/*.jpg "$XLIN_HOME/wallpapers/"
+# the old built-in wallpapers (before the six gradients) go away; wallpapers the user added are never touched
+for w in dawn mist lagoon blossom midnight nebula ember forest; do rm -f "$XLIN_HOME/wallpapers/xlin-$w.jpg"; done
+rm -f "$XLIN_HOME/wallpapers/xlin-light.png" "$XLIN_HOME/wallpapers/xlin-dark.png"
 cp "$SRC/config/shell/xlin.bash" "$XLIN_HOME/shell.bash"
 cp "$SRC/config/kitty/kitty.conf" "$XLIN_HOME/kitty.conf"
 cp "$SRC/config/hypr/xlin.conf" "$SRC/config/hypr/xlin.lua" "$HOME/.config/hypr/"

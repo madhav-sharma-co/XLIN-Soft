@@ -25,8 +25,8 @@ Light and dark themes, glass panels, smooth animations, and a complete set of it
 
 ## Install
 
-    git clone https://github.com/madhav-sharma-co/XLIN.git Xlin-soft
-    cd Xlin-soft
+    git clone https://github.com/madhav-sharma-co/XLIN.git ~/.Xlin-soft
+    cd ~/.Xlin-soft
     ./install.sh          # asks for your password to install packages
     hyprctl reload        # or log out and back in
     xlin doctor           # shows anything missing
@@ -37,7 +37,7 @@ you have `paru` or `yay`).
 
 **Update:** open **Settings → About → Update Xlin-soft**, or run `xlin update`. By hand:
 
-    cd Xlin-soft && git pull && ./update.sh
+    cd ~/.Xlin-soft && git pull && bash update.sh
 
 **Update packages and repair missing ones at any time:** `xlin deps`
 
@@ -52,6 +52,7 @@ you have `paru` or `yay`).
 | Launcher        | Super+Space: search, pinned apps, recent apps and the full All apps list. Right-click an app: Open, pin to the Run Bar, pin to the Launcher |
 | Run Bar         | The bottom bar with pinned and running apps and the Launcher button. It is always there, even with nothing open. Starts with six Xlin-soft apps pinned (the Launcher has twelve, the desktop two); `xlin pins reset` brings the defaults back |
 | Control panel   | Wi-Fi, Bluetooth, airplane mode, dark mode, night light and do not disturb (switched-on buttons are filled with the accent colour), volume, brightness, power mode and notifications (Super+C) |
+| Wallpapers      | Six gradients (Light, Dark, Dark Blue, Light Blue, Dark Green, Light Pink). Add your own or remove them in **Settings → Desktop → Wallpapers**, or with `xlin wallpapers` |
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
 | Settings        | General, Connectivity, Desktop, Status Bar and Run Bar, Launcher, Personalization (theme, accent, fonts, text size, animations, opacity, wallpaper, cursor), About (update, reset) |
 | Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+U) |

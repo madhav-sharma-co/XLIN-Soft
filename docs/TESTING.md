@@ -3,7 +3,7 @@
 Use a fresh Arch Linux install (a virtual machine is fine) with Hyprland and a normal user.
 
 ## Install
-1. `git clone https://github.com/madhav-sharma-co/XLIN.git Xlin-soft && cd Xlin-soft && ./install.sh`
+1. `git clone https://github.com/madhav-sharma-co/XLIN.git ~/.Xlin-soft && cd ~/.Xlin-soft && bash install.sh`
 2. Log out and back in. Check: top bar, Run Bar, wallpaper, cursor, no red error line from Hyprland.
 3. `xlin doctor` shows no MISSING line.
 

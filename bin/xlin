@@ -421,7 +421,6 @@ lock_wallpaper_patch() {
     *) wall="" ;;
   esac
   if [[ -z "$wall" ]]; then
-    wall_generate
     wall="$(wall_default "$theme")"
   fi
   sed -i "s|@WALLPAPER@|$wall|g" "$f"
@@ -558,27 +557,61 @@ wall_set() {
   echo "$file" >"$STATE/wallpaper"
 }
 
-wall_generate() {
-  # Soft gradient wallpapers that match the design, one per theme
-  have magick || { echo "imagemagick not installed, skipping generated wallpapers"; return 0; }
-  local t
-  for t in light dark; do
-    [[ -f "$WALLS/xlin-$t.png" ]] && continue
-    # shellcheck disable=SC1090
-    ( source "$XLIN_HOME/themes/$t.sh"
-      magick -size 2560x1440 "gradient:${C_WALL_A}-${C_WALL_B}" \
-        \( -size 1200x1200 xc:none -fill "$C_WALL_ORB" -draw 'circle 600,600 600,0' -blur 0x4 \) \
-        -geometry -250+900 -composite "$WALLS/xlin-$t.png" )
-  done
+# The six built-in gradient wallpapers (xlin-light.jpg ... xlin-light-pink.jpg). Everything else in $WALLS is the user's.
+WALL_BUILTIN='^xlin-(light|dark|dark-blue|light-blue|dark-green|light-pink)\.jpg$'
+
+# The wallpaper that follows the theme
+wall_default() {
+  echo "$WALLS/xlin-$1.jpg"
 }
 
-# The wallpaper that follows the theme: the generated gradient, or a built-in one if ImageMagick is missing
-wall_default() {
-  local theme="$1" f
-  f="$WALLS/xlin-$theme.png"
-  [[ -f "$f" ]] && { echo "$f"; return; }
-  [[ "$theme" == dark ]] && f="$WALLS/xlin-midnight.jpg" || f="$WALLS/xlin-dawn.jpg"
-  echo "$f"
+# Every wallpaper the user can use: the built-in ones, their own, and ~/Pictures/Wallpapers if it exists
+wall_list() {
+  find "$WALLS" "$HOME/Pictures/Wallpapers" -maxdepth 1 -type f \
+    \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null |
+    grep -v '/xlin-\(light\|dark\)\.png$' | sort
+}
+
+# xlin wallpapers [list | add <image>... | remove <name> | open | path]
+#   The folder is hidden (~/.config/xlin/wallpapers): reach it with  cd "$(xlin wallpapers path)"
+cmd_wallpapers() {
+  local sub="${1:-list}" f name dest n=0
+  shift || true
+  mkdir -p "$WALLS"
+  case "$sub" in
+    path) echo "$WALLS" ;;
+    open) have xdg-open && { xdg-open "$WALLS" >/dev/null 2>&1 & } || echo "$WALLS" ;;
+    list)
+      while IFS= read -r f; do
+        name="$(basename "$f")"
+        if [[ "$f" == "$WALLS/"* && "$name" =~ $WALL_BUILTIN ]]; then echo "$name  (built in)"; else echo "$name"; fi
+      done < <(wall_list)
+      ;;
+    add)
+      (($#)) || { echo "usage: xlin wallpapers add <image> [image...]"; return 1; }
+      for f in "$@"; do
+        [[ -f "$f" ]] || { echo "not a file: $f"; continue; }
+        case "${f,,}" in *.png|*.jpg|*.jpeg|*.webp) ;; *) echo "not a picture (png, jpg, webp): $f"; continue ;; esac
+        name="$(basename "$f")"
+        [[ "$name" =~ $WALL_BUILTIN ]] && name="my-$name"       # never replace a built-in wallpaper
+        dest="$WALLS/$name"
+        [[ "$(realpath "$f")" == "$(realpath -m "$dest")" ]] || cp -f "$f" "$dest"
+        echo "added: $name"; n=$((n + 1))
+      done
+      ((n)) || return 1
+      ;;
+    remove|rm)
+      name="$(basename "${1:-}")"
+      [[ -n "$name" && "$name" != . ]] || { echo "usage: xlin wallpapers remove <name>"; return 1; }
+      [[ "$name" =~ $WALL_BUILTIN ]] && { echo "$name is a built-in wallpaper and stays"; return 1; }
+      [[ -f "$WALLS/$name" ]] || { echo "no such wallpaper: $name"; return 1; }
+      rm -f "$WALLS/$name"
+      # removed the one on the screen: go back to the theme's own wallpaper
+      [[ "$(cat "$STATE/wallpaper" 2>/dev/null)" == "$WALLS/$name" ]] && cmd_wallpaper restore >/dev/null 2>&1
+      echo "removed: $name"
+      ;;
+    *) echo "usage: xlin wallpapers [list|add <image>|remove <name>|open|path]"; return 1 ;;
+  esac
 }
 
 cmd_wallpaper() {
@@ -586,12 +619,11 @@ cmd_wallpaper() {
   theme="$(cat "$STATE/theme" 2>/dev/null || echo light)"
   case "$arg" in
     restore)
-      wall_generate
       if [[ -s "$STATE/wallpaper" && -f "$(cat "$STATE/wallpaper")" ]]; then
         # while the user picked a custom wallpaper, keep it; otherwise follow the theme
         cur="$(cat "$STATE/wallpaper")"
         case "$cur" in
-          "$WALLS"/xlin-light.png|"$WALLS"/xlin-dark.png) wall_set "$(wall_default "$theme")" ;;
+          "$WALLS"/xlin-light.png|"$WALLS"/xlin-dark.png|"$WALLS"/xlin-light.jpg|"$WALLS"/xlin-dark.jpg) wall_set "$(wall_default "$theme")" ;;
           *) wall_set "$cur" ;;
         esac
       else
@@ -599,8 +631,7 @@ cmd_wallpaper() {
       fi
       ;;
     next)
-      mapfile -t list < <(find "$WALLS" "$HOME/Pictures/Wallpapers" -maxdepth 1 -type f \
-        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort)
+      mapfile -t list < <(wall_list)
       ((${#list[@]})) || { echo "No wallpapers found in $WALLS"; return 1; }
       cur="$(cat "$STATE/wallpaper" 2>/dev/null || true)"
       next="${list[0]}"
@@ -2027,14 +2058,14 @@ cmd_update() {
   if [[ -z "$src" || ! -d "$src/.git" ]]; then
     # source file missing or damaged: look for the clone in the usual places
     local d
-    for d in "$HOME/Xlin-soft" "$HOME/XLIN" "$HOME/xlin-soft" "$HOME/xlin" "$HOME/Downloads/"{Xlin-soft,XLIN} "$HOME/Documents/"{Xlin-soft,XLIN} "$HOME/projects/"{Xlin-soft,XLIN} "$HOME/src/"{Xlin-soft,XLIN} "$HOME/Desktop/"{Xlin-soft,XLIN}; do
+    for d in "$HOME/.Xlin-soft" "$HOME/Xlin-soft" "$HOME/XLIN" "$HOME/xlin-soft" "$HOME/xlin" "$HOME/Downloads/"{Xlin-soft,XLIN} "$HOME/Documents/"{Xlin-soft,XLIN} "$HOME/projects/"{Xlin-soft,XLIN} "$HOME/src/"{Xlin-soft,XLIN} "$HOME/Desktop/"{Xlin-soft,XLIN}; do
       if [[ -d "$d/.git" && -f "$d/update.sh" ]] && git -C "$d" remote get-url origin 2>/dev/null | grep -qi 'xlin'; then
         src="$d"; echo "$src" >"$STATE/source"; break
       fi
     done
   fi
   if [[ -z "$src" || ! -d "$src/.git" ]]; then
-    echo "Updates need Xlin-soft installed from its git folder: git clone https://github.com/madhav-sharma-co/XLIN.git ~/Xlin-soft && cd ~/Xlin-soft && ./install.sh"
+    echo "Updates need Xlin-soft installed from its git folder: git clone https://github.com/madhav-sharma-co/XLIN.git ~/.Xlin-soft && cd ~/.Xlin-soft && bash install.sh"
     return 3
   fi
   have git || { echo "git is not installed (sudo pacman -S git)"; return 3; }
@@ -2265,6 +2296,7 @@ case "${1:-help}" in
   brightness) shift; cmd_brightness "$@" ;;
   battery)   shift; cmd_battery "$@" ;;
   theme)     shift; cmd_theme "${1:-}" ;;
+  wallpapers) shift; cmd_wallpapers "$@" ;;
   wallpaper) shift; cmd_wallpaper "${1:-next}" ;;
   launcher)  shift; case "${1:-}" in restart|reset) part_"$1" launcher ;; *) cmd_launcher "${1:-}" ;; esac ;;
   drawer)    cmd_launcher ;;     # the App drawer was merged into the Launcher

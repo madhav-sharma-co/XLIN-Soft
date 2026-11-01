@@ -18,6 +18,11 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gio, GLib, Gtk  # noqa: E402
+try:
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf  # noqa: E402
+except (ValueError, ImportError):   # thumbnails are optional
+    GdkPixbuf = None
 import os as _os
 sys.path[:0] = ["/usr/local/lib/xlin", _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "lib")]
 import xlin_ui  # noqa: E402
@@ -46,6 +51,8 @@ CSS = b"""
 .xlin-sub { opacity: 0.65; font-size: 11px; }
 .xlin-card { border-radius: 10px; padding: 4px 14px; background: alpha(currentColor, 0.06); }
 .xlin-row { padding: 11px 0; }
+.xlin-wall { border-radius: 10px; padding: 3px; border: 2px solid transparent; }
+.xlin-wall-on { border-color: @accent_bg_color; }
 """
 
 
@@ -534,13 +541,14 @@ def appearance_page(win):
                 f = d.open_finish(res)
             except GLib.Error:
                 return
-            in_thread(lambda: run(["xlin", "wallpaper", f.get_path()], 30))
+            in_thread(lambda: (run(["xlin", "wallpapers", "add", f.get_path()], 30),
+                               run(["xlin", "wallpaper", f.get_path()], 30)))
         dlg.open(win, None, done)
 
     wb = Gtk.Box(spacing=8)
     wb.append(button("Next", lambda: in_thread(lambda: run(["xlin", "wallpaper", "next"], 30))))
     wb.append(button("Choose image...", pick_wall))
-    c.append(row("Wallpaper", None, wb))
+    c.append(row("Wallpaper", "Add and remove wallpapers in Settings, Desktop", wb))
     c.append(row("Animations", "Windows, Launcher, control panel, bars and workspaces. Smooth is the default", segmented(
         [("off", "Off"), ("subtle", "Subtle"), ("smooth", "Smooth")], read_state("animations", "smooth"),
         lambda v: in_thread(lambda: run(["xlin", "animations", v], 15)))))
@@ -776,15 +784,122 @@ def desktop_page(win):
             desktop_edit(change)
         cw.append(row(name, None, switch(on, set_widget)))
 
+    box.append(WallpaperCard(win))
     cm = card()
     box.append(cm)
-    wb = Gtk.Box(spacing=8)
-    wb.append(button("Next", lambda: in_thread(lambda: run(["xlin", "wallpaper", "next"], 30))))
-    cm.append(row("Wallpaper", "More choices are in Personalization", wb))
     cm.append(row("Mouse cursor size", None, segmented(
         [("24", "Small"), ("32", "Medium"), ("48", "Large"), ("64", "Huge")], read_state("cursor_size", "24"),
         lambda v: in_thread(lambda: run(["xlin", "cursor", v])))))
     return box
+
+
+WALL_BUILTIN = re.compile(r"^xlin-(light|dark|dark-blue|light-blue|dark-green|light-pink)\.jpg$")
+WALL_NAMES = {"xlin-light.jpg": "Light", "xlin-dark.jpg": "Dark", "xlin-dark-blue.jpg": "Dark Blue",
+              "xlin-light-blue.jpg": "Light Blue", "xlin-dark-green.jpg": "Dark Green", "xlin-light-pink.jpg": "Light Pink"}
+
+
+class WallpaperCard(Gtk.Box):
+    """Settings -> Desktop -> Wallpapers: the six built-in gradients plus the user's own pictures.
+    Click one to use it; add pictures; remove your own; open the folder."""
+
+    def __init__(self, win):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.win = win
+        c = card()
+        self.append(c)
+        c.append(row("Wallpapers", "Click one to use it. Your own pictures can be removed; the six built-in ones stay."))
+        self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                                max_children_per_line=4, min_children_per_line=2,
+                                row_spacing=8, column_spacing=8, margin_bottom=10)
+        c.append(self.flow)
+        bar = Gtk.Box(spacing=8, margin_bottom=10)
+        bar.append(button("Add wallpaper...", self.add))
+        bar.append(button("Next", lambda: in_thread(lambda: run(["xlin", "wallpaper", "next"], 30),
+                                                   lambda _r: self.reload())))
+        bar.append(button("Open folder", lambda: in_thread(lambda: run(["xlin", "wallpapers", "open"]))))
+        c.append(bar)
+        self.reload()
+
+    def reload(self):
+        in_thread(self.read, self.show)
+
+    @staticmethod
+    def read():
+        ok, out = run(["xlin", "wallpapers", "path"])
+        base = out if ok and out else os.path.expanduser("~/.config/xlin/wallpapers")
+        _ok, listing = run(["xlin", "wallpapers", "list"], 10)
+        names = [ln.replace("  (built in)", "") for ln in listing.splitlines() if ln.strip()]
+        try:
+            current = open(os.path.join(STATE, "wallpaper")).read().strip()
+        except OSError:
+            current = ""
+        items = []
+        for n in names:
+            path = os.path.join(base, n)
+            if not os.path.isfile(path):
+                path = os.path.expanduser(os.path.join("~/Pictures/Wallpapers", n))
+            thumb = None
+            if GdkPixbuf is not None:
+                try:
+                    thumb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 176, 99, True)
+                except GLib.Error:
+                    thumb = None
+            items.append((n, path, thumb))
+        return items, current
+
+    def show(self, result):
+        items, current = result
+        while (ch := self.flow.get_first_child()) is not None:
+            self.flow.remove(ch)
+        for n, path, thumb in items:
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            tile.add_css_class("xlin-wall")
+            if path == current:
+                tile.add_css_class("xlin-wall-on")
+            pic = Gtk.Picture.new_for_pixbuf(thumb) if thumb is not None else Gtk.Picture()
+            pic.set_size_request(176, 99)
+            pic.set_can_shrink(True)
+            b = Gtk.Button()
+            b.set_child(pic)
+            b.add_css_class("flat")
+            b.connect("clicked", lambda _b, p=path: self.use(p))
+            tile.append(b)
+            label = Gtk.Box(spacing=4)
+            name = Gtk.Label(label=WALL_NAMES.get(n, os.path.splitext(n)[0]), xalign=0, hexpand=True)
+            name.add_css_class("xlin-sub")
+            name.set_ellipsize(3)
+            label.append(name)
+            if not WALL_BUILTIN.match(n) and os.path.dirname(path) != os.path.expanduser("~/Pictures/Wallpapers"):
+                rm = Gtk.Button(icon_name="user-trash-symbolic")
+                rm.add_css_class("flat")
+                rm.set_tooltip_text("Remove this wallpaper")
+                rm.connect("clicked", lambda _b, nn=n: in_thread(
+                    lambda: run(["xlin", "wallpapers", "remove", nn], 30), lambda _r: self.reload()))
+                label.append(rm)
+            tile.append(label)
+            self.flow.append(tile)
+
+    def use(self, path):
+        in_thread(lambda: run(["xlin", "wallpaper", path], 30), lambda _r: self.reload())
+
+    def add(self):
+        dlg = Gtk.FileDialog(title="Add wallpapers")
+        flt = Gtk.FileFilter()
+        flt.set_name("Images")
+        for m in ("image/png", "image/jpeg", "image/webp"):
+            flt.add_mime_type(m)
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+
+        def done(d, res):
+            try:
+                files = d.open_multiple_finish(res)
+            except GLib.Error:
+                return
+            paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
+            in_thread(lambda: run(["xlin", "wallpapers", "add", *paths], 60), lambda _r: self.reload())
+        dlg.open_multiple(self.win, None, done)
 
 
 def launcher_page(win):

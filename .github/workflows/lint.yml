@@ -21,6 +21,8 @@ jobs:
         run: bash tests/test-install-lists.sh
       - name: Default pins regression tests
         run: bash tests/test-pins.sh
+      - name: Wallpapers
+        run: bash tests/test-wallpapers.sh
       - name: Menus and manual
         run: bash tests/test-menus.sh
       - name: Python compile
