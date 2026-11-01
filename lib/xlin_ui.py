@@ -181,12 +181,74 @@ CSS_PATH = os.path.expanduser("~/.config/xlin/tools.css")
 _LIVE = {}
 
 
+def smooth_wheel(sw):
+    """Mouse-wheel scrolling that glides to its target instead of jumping (touchpads already scroll smoothly).
+    Attached to every ScrolledWindow made after live_css() ran, so it works everywhere in Xlin-soft."""
+    from gi.repository import Gtk as _Gtk
+    st = {"target": None, "tick": 0, "last": 0}
+
+    def on_scroll(_c, _dx, dy):
+        adj = sw.get_vadjustment()
+        room = adj.get_upper() - adj.get_page_size() - adj.get_lower()
+        if room <= 0 or dy == 0:
+            return False                       # nothing to scroll here: let a parent scroll area have it
+        lo, hi = adj.get_lower(), adj.get_upper() - adj.get_page_size()
+        base = st["target"] if st["tick"] and st["target"] is not None else adj.get_value()
+        if (dy > 0 and adj.get_value() >= hi - 0.5 and not st["tick"]) or (dy < 0 and adj.get_value() <= lo + 0.5 and not st["tick"]):
+            return False                       # already at the end: pass it on
+        step = max(40.0, adj.get_page_size() ** (2.0 / 3.0)) * 1.4
+        st["target"] = max(lo, min(hi, base + dy * step))
+        if not st["tick"]:
+            st["last"] = 0
+            st["tick"] = sw.add_tick_callback(on_tick)
+        return True
+
+    def on_tick(widget, clock):
+        adj = widget.get_vadjustment()
+        now = clock.get_frame_time()
+        dt = (now - st["last"]) / 1e6 if st["last"] else 0.016
+        st["last"] = now
+        diff = st["target"] - adj.get_value()
+        if abs(diff) < 0.6:
+            adj.set_value(st["target"])
+            st["tick"] = 0
+            return False                       # GLib.SOURCE_REMOVE
+        k = 1.0 - pow(2.718281828, -dt / 0.07)  # about 70 ms to close most of the gap, whatever the frame rate
+        adj.set_value(adj.get_value() + diff * k)
+        return True
+
+    ctl = _Gtk.EventControllerScroll.new(_Gtk.EventControllerScrollFlags.VERTICAL | _Gtk.EventControllerScrollFlags.DISCRETE)
+    ctl.set_propagation_phase(_Gtk.PropagationPhase.CAPTURE)
+    ctl.connect("scroll", on_scroll)
+    sw.add_controller(ctl)
+
+
+def _patch_scrolled_windows():
+    from gi.repository import Gtk as _Gtk
+    if getattr(_Gtk.ScrolledWindow, "_xlin_smooth", False):
+        return
+    orig = _Gtk.ScrolledWindow.__init__
+
+    def init(self, *a, **k):
+        orig(self, *a, **k)
+        try:
+            smooth_wheel(self)
+        except Exception:
+            pass
+    _Gtk.ScrolledWindow.__init__ = init
+    _Gtk.ScrolledWindow._xlin_smooth = True
+
+
 def live_css():
     """Load Xlin-soft's stylesheet and keep it current. Warm (hidden) apps and open menus follow a theme or font
     change immediately, so dark / light and the font size apply everywhere without restarting anything."""
     if _LIVE:
         return
     from gi.repository import Gdk, Gio, GLib
+    try:    # every scroll area glides with the mouse wheel
+        _patch_scrolled_windows()
+    except Exception:
+        pass
     try:    # a scroll bar is always there on the right (not only while scrolling), so long pages can be navigated
         Gtk.Settings.get_default().set_property("gtk-overlay-scrolling", False)
     except Exception:

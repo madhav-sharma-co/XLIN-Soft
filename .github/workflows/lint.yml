@@ -27,6 +27,8 @@ jobs:
         run: bash tests/test-defaults.sh
       - name: Update mode and scroll bar
         run: bash tests/test-update-mode.sh
+      - name: Scrolling
+        run: bash tests/test-scroll.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

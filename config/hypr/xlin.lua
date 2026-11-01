@@ -42,6 +42,7 @@ hl.config({
 
 -- Animations are generated (xlin animations off | subtle | smooth): soft springs, scale and fade
 pcall(require, "xlin-anim")
+pcall(require, "xlin-scroll")   -- scroll direction: normal by default (xlin scroll normal|natural)
 
 pcall(require, "xlin-opacity")  -- window transparency (generated)
 

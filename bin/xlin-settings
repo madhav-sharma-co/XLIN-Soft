@@ -839,6 +839,9 @@ def desktop_page(win):
     box.append(WallpaperCard(win))
     cm = card()
     box.append(cm)
+    cm.append(row("Natural scrolling", "Off: scrolling down moves the page down (normal). On: the page follows your fingers, like a phone",
+                  switch(read_state("scroll", "normal") == "natural",
+                         lambda s: in_thread(lambda: run(["xlin", "scroll", "natural" if s else "normal"], 10)))))
     cm.append(row("Mouse cursor size", None, segmented(
         [("24", "Small"), ("32", "Medium"), ("48", "Large"), ("64", "Huge")], read_state("cursor_size", "24"),
         lambda v: in_thread(lambda: run(["xlin", "cursor", v])))))
