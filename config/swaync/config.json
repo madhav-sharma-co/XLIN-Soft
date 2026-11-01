@@ -31,7 +31,7 @@
         "position": "right",
         "actions": [
           {
-            "label": "\u2715",
+            "label": "✕",
             "command": "swaync-client -cp"
           }
         ]
@@ -46,58 +46,62 @@
       "buttons-per-row": 2,
       "actions": [
         {
-          "label": "\uf1eb  Wi-Fi",
+          "label": "  Wi-Fi",
           "command": "xlin toggle wifi",
           "type": "toggle",
           "active": false,
           "update-command": "xlin state wifi"
         },
         {
-          "label": "\uf293  Bluetooth",
+          "label": "  Bluetooth",
           "command": "xlin toggle bluetooth",
           "type": "toggle",
           "active": false,
           "update-command": "xlin state bluetooth"
         },
         {
-          "label": "\uf072  Airplane",
+          "label": "  Airplane",
           "command": "xlin toggle airplane",
           "type": "toggle",
           "active": false,
           "update-command": "xlin state airplane"
         },
         {
-          "label": "\uf186  Dark mode",
-          "command": "xlin theme toggle",
-          "type": "toggle",
-          "active": false,
-          "update-command": "xlin state dark"
-        },
-        {
-          "label": "\uf186  Night light",
-          "command": "xlin nightlight toggle",
-          "type": "toggle",
-          "active": false,
-          "update-command": "xlin state nightlight"
-        },
-        {
-          "label": "\uf1f6  Do not disturb",
+          "label": "  Do not disturb",
           "type": "toggle",
           "active": false,
           "command": "swaync-client -d",
           "update-command": "swaync-client -D"
         },
         {
-          "label": "\uf013  Settings",
+          "label": "  Dark mode",
+          "command": "xlin theme toggle",
+          "type": "toggle",
+          "active": false,
+          "update-command": "xlin state dark"
+        },
+        {
+          "label": "  Night light",
+          "command": "xlin nightlight toggle",
+          "type": "toggle",
+          "active": false,
+          "update-command": "xlin state nightlight"
+        },
+        {
+          "label": "  Settings",
           "command": "xlin settings"
+        },
+        {
+          "label": "  Reload",
+          "command": "sh -c 'swaync-client -cp; setsid -f xlin restart >/dev/null 2>&1'"
         }
       ]
     },
     "volume": {
-      "label": "\uf028"
+      "label": ""
     },
     "backlight": {
-      "label": "\uf185"
+      "label": ""
     }
   }
 }

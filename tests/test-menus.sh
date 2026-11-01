@@ -17,6 +17,7 @@ chk "window rules (lua)"             "grep -q 'Wifi' config/hypr/xlin.lua && gre
 chk "window rules (conf)"            "grep -q 'Wifi|Bluetooth' config/hypr/xlin.conf && grep -q 'xlin.*Manual' config/hypr/xlin.conf"
 chk "install clears welcomed"        "grep -q 'rm -f \"\$XLIN_HOME/state/welcomed\"' install.sh"
 chk "reset clears welcomed + shows"  "sed -n '/^cmd_reset()/,/^}/p' bin/xlin | grep -q 'welcomed' && sed -n '/^cmd_reset()/,/^}/p' bin/xlin | grep -q 'cmd_welcome --first'"
+chk "control panel button order" "python3 -c \"import json;a=[x['label'].split('  ',1)[1] for x in json.load(open('config/swaync/config.json'))['widget-config']['buttons-grid']['actions']];assert a==['Wi-Fi','Bluetooth','Airplane','Do not disturb','Dark mode','Night light','Settings','Reload'],a\""
 chk "python compiles"                "python3 -m py_compile bin/xlin-tools"
 chk "bash syntax"                    "bash -n bin/xlin"
 exit $fail
