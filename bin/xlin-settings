@@ -34,8 +34,6 @@ PAGES = [
     ("general", "General", "preferences-system-symbolic"),
     ("connectivity", "Connectivity", "network-wireless-symbolic"),
     ("desktop", "Desktop", "preferences-desktop-wallpaper-symbolic"),
-    ("bars", "Status Bar and Run Bar", "view-list-symbolic"),
-    ("launcher", "Launcher and App Drawer", "view-app-grid-symbolic"),
     ("apps", "Apps and Tools", "applications-other-symbolic"),
     ("personalization", "Personalization", "preferences-desktop-theme-symbolic"),
     ("about", "About", "help-about-symbolic"),
@@ -43,7 +41,8 @@ PAGES = [
 # old page names still work (xlin settings wifi, xlin settings sound, ...): name -> (page, tab)
 ALIASES = {"wifi": ("connectivity", "wifi"), "bluetooth": ("connectivity", "bluetooth"),
            "airplane": ("connectivity", "wifi"), "display": ("general", None), "sound": ("general", None),
-           "appearance": ("personalization", None), "calendar": ("general", None)}
+           "appearance": ("personalization", None), "bars": ("desktop", None), "launcher": ("desktop", None),
+           "mouse": ("general", None), "scroll": ("general", None), "calendar": ("general", None)}
 
 CSS = b"""
 .xlin-side { padding: 10px 8px; }
@@ -512,7 +511,7 @@ def font_picker(families, current, on_pick):
 
 
 def appearance_page(win):
-    box = page_box("Personalization", "Theme, accent colour, transparency and wallpaper")
+    box = page_box("Personalization", "Theme, accent colour, transparency, animations and fonts")
     c = card()
     box.append(c)
     dark = read_state("theme", "light") == "dark"
@@ -609,8 +608,8 @@ BAR_ITEMS = [
 ]
 
 
-def bars_page(win):
-    box = page_box("Status Bar and Run Bar", "Choose what shows on the top bar and how the Run Bar behaves")
+def bars_page(win, box):
+    """Desktop -> Status bar and Run Bar (appended to the Desktop page)."""
     hidden = set(read_state("bar_hidden", "").split())
     c = card()
     box.append(c)
@@ -623,7 +622,7 @@ def bars_page(win):
             lambda s, n=name: in_thread(lambda: run(["xlin", "bar", "show" if s else "hide", n])))))
     c.append(row("Show everything again", None,
                  button("Reset", lambda: in_thread(lambda: run(["xlin", "bar", "reset"]),
-                                                   lambda _r: win.rebuild("bars")))))
+                                                   lambda _r: win.rebuild("desktop")))))
 
     c2 = card()
     box.append(c2)
@@ -688,7 +687,7 @@ def glob_batteries():
 
 
 def general_page(win):
-    box = page_box("General", "Sound, brightness, battery, notifications and sleep")
+    box = page_box("General", "Sound, brightness, battery, notifications, sleep and the mouse")
     c = card()
     box.append(c)
     sound_rows(c)
@@ -718,6 +717,17 @@ def general_page(win):
     c2.append(row("Keep apps ready", "Settings, Files, Store and the Launcher wait out of sight so they open instantly", switch(
         not os.path.exists(os.path.join(STATE, "warm_off")),
         lambda s: in_thread(lambda: run(["xlin", "warm", "on" if s else "off"], 20)))))
+    cm = card()
+    box.append(cm)
+    head = Gtk.Label(label="Mouse and touchpad", xalign=0, margin_top=10)
+    head.add_css_class("xlin-sub")
+    cm.append(head)
+    cm.append(row("Natural scrolling", "Off: scrolling down moves the page down (normal). On: the page follows your fingers, like a phone",
+                  switch(read_state("scroll", "normal") == "natural",
+                         lambda s: in_thread(lambda: run(["xlin", "scroll", "natural" if s else "normal"], 10)))))
+    cm.append(row("Mouse cursor size", None, segmented(
+        [("24", "Small"), ("32", "Medium"), ("48", "Large"), ("64", "Huge")], read_state("cursor_size", "24"),
+        lambda v: in_thread(lambda: run(["xlin", "cursor", v])))))
     return box
 
 
@@ -778,7 +788,7 @@ def desktop_edit(change):
 
 
 def desktop_page(win):
-    box = page_box("Desktop", "Icons, widgets, wallpaper and the mouse")
+    box = page_box("Desktop", "Status bar, Run Bar, Launcher, icons, widgets and wallpapers")
     try:
         with open(DESKTOP_CFG) as f:
             cfg = json.load(f)
@@ -841,14 +851,8 @@ def desktop_page(win):
         cw.append(row(name, None, switch(on, set_widget)))
 
     box.append(WallpaperCard(win))
-    cm = card()
-    box.append(cm)
-    cm.append(row("Natural scrolling", "Off: scrolling down moves the page down (normal). On: the page follows your fingers, like a phone",
-                  switch(read_state("scroll", "normal") == "natural",
-                         lambda s: in_thread(lambda: run(["xlin", "scroll", "natural" if s else "normal"], 10)))))
-    cm.append(row("Mouse cursor size", None, segmented(
-        [("24", "Small"), ("32", "Medium"), ("48", "Large"), ("64", "Huge")], read_state("cursor_size", "24"),
-        lambda v: in_thread(lambda: run(["xlin", "cursor", v])))))
+    bars_page(win, box)
+    launcher_page(win, box)
     return box
 
 
@@ -1038,8 +1042,8 @@ def apps_page(win):
     return box
 
 
-def launcher_page(win):
-    box = page_box("Launcher and App Drawer", "Right-click an app in the Launcher to pin it to the Launcher or the Run Bar")
+def launcher_page(win, box):
+    """Desktop -> Launcher and Run Bar pins (appended to the Desktop page)."""
     c = card()
     box.append(c)
     pins = []
@@ -1059,11 +1063,11 @@ def launcher_page(win):
             c.append(row(app.get_display_name() if app else pid, None, button("Unpin", lambda p=pid: unpin(p))))
 
     def unpin_bar(p):
-        in_thread(lambda: run(["xlin", "unpin", p], 15), lambda _r: win.rebuild("launcher"))
+        in_thread(lambda: run(["xlin", "unpin", p], 15), lambda _r: win.rebuild("desktop"))
 
     def unpin_start(p):
         xlin_ui.set_launcher_pin(p, False)
-        win.rebuild("launcher")
+        win.rebuild("desktop")
     section("Pinned in the Launcher", xlin_ui.launcher_pins() or [], "Nothing pinned in the Launcher", unpin_start)
     section("Pinned on the Run Bar", pins, "Nothing pinned on the Run Bar", unpin_bar)
     c3 = card()
@@ -1078,7 +1082,7 @@ def launcher_page(win):
             except GLib.Error:
                 return
             paths = [files.get_item(i).get_path() for i in range(files.get_n_items()) if files.get_item(i).get_path()]
-            in_thread(lambda: [run(["xlin", "pinpath", target, p], 20) for p in paths], lambda _r: win.rebuild("launcher"))
+            in_thread(lambda: [run(["xlin", "pinpath", target, p], 20) for p in paths], lambda _r: win.rebuild("desktop"))
         (dlg.select_multiple_folders if folders else dlg.open_multiple)(win, None, done)
 
     for target, where in (("launcher", "the Launcher"), ("runbar", "the Run Bar")):
@@ -1248,8 +1252,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "general": lambda: general_page(self),
             "connectivity": lambda: self.connectivity(keep),
             "desktop": lambda: desktop_page(self),
-            "bars": lambda: bars_page(self),
-            "launcher": lambda: launcher_page(self),
             "apps": lambda: apps_page(self),
             "personalization": lambda: appearance_page(self),
             "about": lambda: about_page(self),

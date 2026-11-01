@@ -56,7 +56,7 @@ you have `paru` or `yay`).
 | Apps and Tools  | Settings tab to choose default apps (terminal, browser, files, music, video, images, text, PDF, email); Xlin-soft Files, Media and Terminal are the defaults |
 | Wallpapers      | Six gradients (Light, Dark, Dark Blue, Light Blue, Dark Green, Light Pink). Add your own or remove them in **Settings → Desktop → Wallpapers**, or with `xlin wallpapers` |
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
-| Settings        | General, Connectivity, Desktop, Status Bar and Run Bar, Launcher, Personalization (theme, accent, fonts, text size, animations, opacity, wallpaper, cursor), About (update, reset) |
+| Settings        | General (sound, brightness, battery, notifications, sleep, mouse and scrolling), Connectivity, Desktop (status bar, Run Bar, Launcher pins, icons, widgets, wallpapers), Apps and Tools, Personalization (theme, accent, fonts, text size, animations, transparency), About (update, restart, reset, version) |
 | Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+T) |
 | Apps            | Terminal with tabs, Files, SysMon, Media player, Store (pacman and AUR) and SysDeb (checks, logs, repairs) |
 | Windows         | Every app has hide, fullscreen and close buttons, can be resized by its edge or Super+right-drag, and fills the screen on a double-click of its title bar. Super+H brings hidden windows back, Super+Shift+D shows the desktop |
