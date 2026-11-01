@@ -35,6 +35,8 @@ jobs:
         run: bash tests/test-hide.sh
       - name: Apps keep a clean environment
         run: bash tests/test-launch-env.sh
+      - name: Status bar, volume menu, Run Bar
+        run: bash tests/test-bars.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

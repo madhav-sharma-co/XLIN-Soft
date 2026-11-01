@@ -52,9 +52,10 @@ SESSION_ITEMS = [("lock", "\uf023", "Lock Screen", "lock", False),
 WIFI_ID, WIFI_W, WIFI_H = "dev.xlin.Wifi", 330, 440
 BT_ID, BT_W, BT_H = "dev.xlin.Bluetooth", 320, 380
 MANUAL_ID, MANUAL_W, MANUAL_H = "dev.xlin.Manual", 560, 600
+VOL_ID, VOL_W, VOL_H = "dev.xlin.Volume", 320, 360
 # the windows that are not one of the TOOLS: key -> Wayland app id
-EXTRA_IDS = {"power": POWER_ID, "session": SESSION_ID, "wifi": WIFI_ID, "bluetooth": BT_ID, "manual": MANUAL_ID}
-ALL_IDS = {MENU_ID, POWER_ID, SESSION_ID, WIFI_ID, BT_ID, MANUAL_ID} | {t[1] for t in TOOLS.values()}
+EXTRA_IDS = {"power": POWER_ID, "session": SESSION_ID, "wifi": WIFI_ID, "bluetooth": BT_ID, "manual": MANUAL_ID, "volume": VOL_ID}
+ALL_IDS = {MENU_ID, POWER_ID, SESSION_ID, WIFI_ID, BT_ID, MANUAL_ID, VOL_ID} | {t[1] for t in TOOLS.values()}
 MODES = [("power-saver", "Power saver", "Longer battery life"),
          ("balanced", "Balanced", "Good for everyday use"),
          ("performance", "Performance", "Fastest, uses more power")]
@@ -1528,6 +1529,155 @@ class BluetoothWindow(ToolWindow, Dropdown):
         return False
 
 
+# ---------------------------------------------------------------- volume menu
+SINK = "@DEFAULT_AUDIO_SINK@"
+
+
+def read_volume():
+    """(percent, muted) of the default speakers, or None when there is no sound server."""
+    import re
+    ok, out = cmd_out(["wpctl", "get-volume", SINK], 3)
+    m = re.search(r"([\d.]+)", out) if ok else None
+    if not m:
+        return None
+    return int(float(m.group(1)) * 100 + 0.5), "MUTED" in out
+
+
+def read_sinks():
+    """[(id, name, is_default)] of the sound outputs, from `wpctl status`."""
+    import re
+    ok, out = cmd_out(["wpctl", "status"], 4)
+    sinks, inside = [], False
+    for line in out.splitlines() if ok else []:
+        bare = line.replace("│", " ").replace("├", " ").replace("└", " ").replace("─", " ").strip()
+        if bare.startswith("Sinks:"):
+            inside = True
+            continue
+        if inside:
+            if re.match(r"^[│\s]*[├└]", line) or not bare:
+                break
+            m = re.match(r"^(\*)?\s*(\d+)\.\s+(.*?)(\s+\[vol:.*)?$", bare)
+            if m:
+                sinks.append((m.group(2), m.group(3), bool(m.group(1))))
+    return sinks
+
+
+class VolumeWindow(ToolWindow, Dropdown):
+    """Volume dropdown: a slider, a mute switch and the sound outputs. Opens from the speaker icon on the top bar."""
+
+    def __init__(self, app):
+        super().__init__(app, "Volume", VOL_W, VOL_H, with_close=False)
+        self.busy = False
+        self.last_touch = 0.0
+        self.timer = 0
+        head = Gtk.Box(spacing=8)
+        title = Gtk.Label(label="Sound", xalign=0, hexpand=True)
+        title.add_css_class("power-big")
+        head.append(title)
+        mute_label = Gtk.Label(label="Mute")
+        mute_label.add_css_class("tools-sub")
+        head.append(mute_label)
+        self.mute = Gtk.Switch()
+        self.mute.set_valign(Gtk.Align.CENTER)
+        self.mute.connect("state-set", self.on_mute)
+        head.append(self.mute)
+        self.body.append(head)
+
+        line = Gtk.Box(spacing=10, margin_top=6)
+        self.icon = Gtk.Label(label="\uf028")
+        line.append(self.icon)
+        self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.scale.set_hexpand(True)
+        self.scale.set_draw_value(False)
+        self.scale.connect("value-changed", self.on_volume)
+        line.append(self.scale)
+        self.pct = Gtk.Label(label="--%", xalign=1)
+        self.pct.set_width_chars(4)
+        line.append(self.pct)
+        self.body.append(line)
+
+        self.status = Gtk.Label(xalign=0, wrap=True)
+        self.status.add_css_class("tools-sub")
+        self.body.append(self.status)
+        out = Gtk.Label(label="Output", xalign=0, margin_top=8)
+        out.add_css_class("tools-sub")
+        self.body.append(out)
+        self.list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        sc = Gtk.ScrolledWindow(vexpand=True)
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.set_child(self.list)
+        self.body.append(sc)
+        if shutil.which("pavucontrol"):
+            more = Gtk.Button(label="Sound mixer…")
+            more.add_css_class("tools-item")
+            more.connect("clicked", lambda _b: (xlin_ui.run(["pavucontrol"]), self.close()))
+            self.body.append(more)
+
+        self.setup_dropdown()
+        self.refresh()
+        GLib.timeout_add_seconds(2, self.refresh)
+
+    def refresh(self):
+        if not self.get_visible():
+            return False
+        threading.Thread(target=lambda: GLib.idle_add(self.show, read_volume(), read_sinks()), daemon=True).start()
+        return True
+
+    def show(self, vol, sinks):
+        if vol is None:
+            self.status.set_text("No sound output found")
+            return False
+        if time.monotonic() - self.last_touch > 1.5:          # never fight the handle while it is being dragged
+            self.busy = True
+            self.scale.set_value(min(100, vol[0]))
+            self.mute.set_active(vol[1])
+            self.busy = False
+            self.pct.set_text(f"{vol[0]}%")
+        self.icon.set_text("\uf026" if vol[1] else "\uf028")
+        self.status.set_text("Muted" if vol[1] else "")
+        while (c := self.list.get_first_child()) is not None:
+            self.list.remove(c)
+        for sid, name, current in sinks:
+            row = menu_row(name, "", "✓" if current else "")
+            if current:
+                row.add_css_class("tools-active")
+            row.connect("clicked", lambda _b, i=sid: self.use_sink(i))
+            self.list.append(row)
+        return False
+
+    def on_volume(self, scale):
+        if self.busy:
+            return
+        v = int(scale.get_value())
+        self.last_touch = time.monotonic()
+        self.pct.set_text(f"{v}%")
+        if self.timer:
+            GLib.source_remove(self.timer)
+        self.timer = GLib.timeout_add(40, self.apply_volume, v)
+
+    def apply_volume(self, v):
+        self.timer = 0
+        threading.Thread(target=lambda: cmd_out(["wpctl", "set-volume", SINK, f"{v / 100:.2f}"], 3), daemon=True).start()
+        if v > 0:      # dragging the handle up from silence also unmutes, like on a phone
+            threading.Thread(target=lambda: cmd_out(["wpctl", "set-mute", SINK, "0"], 3), daemon=True).start()
+            self.busy = True
+            self.mute.set_active(False)
+            self.busy = False
+            self.status.set_text("")
+        return False
+
+    def on_mute(self, _s, state):
+        if not self.busy:
+            self.last_touch = 0.0
+            threading.Thread(target=lambda: (cmd_out(["wpctl", "set-mute", SINK, "1" if state else "0"], 3),
+                                             GLib.idle_add(self.refresh)), daemon=True).start()
+        return False
+
+    def use_sink(self, sid):
+        threading.Thread(target=lambda: (cmd_out(["wpctl", "set-default", sid], 4),
+                                         GLib.idle_add(self.refresh)), daemon=True).start()
+
+
 # ---------------------------------------------------------------- the manual
 MANUAL_TEXT = [
     ("h", "Welcome to Xlin-soft"),
@@ -1727,6 +1877,8 @@ class ToolsApp(Gtk.Application):
             self.win = BluetoothWindow(self)
         elif self.mode == "manual":
             self.win = ManualWindow(self)
+        elif self.mode == "volume":
+            self.win = VolumeWindow(self)
         else:
             self.win = FloatingTool(self, self.mode)
         self.win.present()
@@ -1739,6 +1891,6 @@ class ToolsApp(Gtk.Application):
 if __name__ == "__main__":
     mode = sys.argv[1].lower() if len(sys.argv) > 1 else None
     if mode and mode not in TOOLS and mode not in EXTRA_IDS:
-        print("usage: xlin-tools [calculator|calendar|power|session|wifi|bluetooth|manual]")
+        print("usage: xlin-tools [calculator|calendar|power|session|wifi|bluetooth|volume|manual]")
         sys.exit(2)
     sys.exit(ToolsApp(mode).run([sys.argv[0]]))

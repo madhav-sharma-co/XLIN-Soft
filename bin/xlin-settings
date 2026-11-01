@@ -601,8 +601,9 @@ BAR_ITEMS = [
     ("tools", "Tools shortcut", "Calculator, calendar, notes and screenshot"),
     ("wifi", "Wi-Fi", "Network status and quick switch"),
     ("bluetooth", "Bluetooth", "Bluetooth status and devices"),
-    ("sound", "Sound", "Volume"),
+    ("sound", "Sound", "Volume and quick menu"),
     ("battery", "Battery", "Charge and power mode (hidden by itself on computers without a battery)"),
+    ("clock", "Time and date", "The clock"),
     ("power", "Power menu", "Lock, sleep, log out, restart, power off"),
     ("panel", "Control panel", "Notifications and quick toggles"),
 ]
@@ -797,6 +798,9 @@ def desktop_page(win):
     c.append(row("Restart the desktop layer", "Use this if right-click on the desktop does nothing", button(
         "Restart", lambda: in_thread(lambda: run(["xlin", "desktop", "restart"], 20),
                                      lambda _r: GLib.timeout_add(1500, lambda: (refresh_status(), False)[1])))))
+    c.append(row("Show status bar", "The top bar. Switch it off if you do not want it; Super+C still opens the control panel", switch(
+        not os.path.exists(os.path.join(STATE, "statusbar_off")),
+        lambda s: in_thread(lambda: run(["xlin", "statusbar", "on" if s else "off"], 10)))))
     c.append(row("Desktop layer", "Right-click menu, icons and widgets on the desktop", switch(
         not os.path.exists(os.path.join(STATE, "desktop_off")),
         lambda s: in_thread(lambda: run(["xlin", "desktop", "on" if s else "off"], 20)))))

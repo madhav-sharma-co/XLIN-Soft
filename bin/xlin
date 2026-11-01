@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # xlin - command line for the Xlin-soft desktop
 set -uo pipefail
+# The Launcher and the desktop start with the gtk4-layer-shell library preloaded. Anything they start through xlin
+# (the Run Bar, the top bar, other apps) must not carry it along: the Run Bar used to die after pinning an app.
+case "${LD_PRELOAD:-}" in *libgtk4-layer-shell*) unset LD_PRELOAD XLIN_START_REEXEC XLIN_DESKTOP_REEXEC ;; esac
 
 XLIN_HOME="${XLIN_HOME:-$HOME/.config/xlin}"
 STATE="$XLIN_HOME/state"
@@ -903,6 +906,7 @@ cmd_pin() {
   grep -qx "$id" "$PINS" || echo "$id" >>"$PINS"
   notify "Pinned to the run bar" "$id"
   dock_restart
+  dock_verify
 }
 
 # xlin pinpath <runbar|launcher|both> <file-or-folder>: pin a real file or folder, like an app (Run Bar / Launcher).
@@ -970,6 +974,12 @@ dock_stop() {
   return 0
 }
 dock_restart() { dock_stop; dock_check; }
+# after a restart: if the Run Bar did not come up, start it again (it must never stay gone)
+dock_verify() {
+  local i
+  for i in 1 2 3 4 5; do sleep 0.3; pgrep -f '^nwg-dock-hyprland' >/dev/null && return 0; dock_start; done
+  return 0
+}
 
 # ----------------------------------------------------- toggles + settings
 # xlin state <wifi|bluetooth|airplane|dark|nightlight|dnd>: prints true or false (the control panel's buttons show it)
@@ -1332,7 +1342,19 @@ stop_proc() {
   pkill -9 "$how" "$pat" 2>/dev/null || true
   return 0
 }
-start_waybar() { mkdir -p "$HOME/.cache/xlin"; setsid waybar >>"$HOME/.cache/xlin/waybar.log" 2>&1 & }
+start_waybar() {
+  [[ -f "$STATE/statusbar_off" ]] && return 0          # the user switched the status bar off (Settings -> Desktop)
+  mkdir -p "$HOME/.cache/xlin"; setsid waybar >>"$HOME/.cache/xlin/waybar.log" 2>&1 &
+}
+# xlin statusbar [on|off]: show or hide the whole top bar
+cmd_statusbar() {
+  case "${1:-}" in
+    "") [[ -f "$STATE/statusbar_off" ]] && echo "status bar: off" || echo "status bar: on" ;;
+    on)  rm -f "$STATE/statusbar_off"; pgrep -x waybar >/dev/null || start_waybar; echo "status bar: on" ;;
+    off) mkdir -p "$STATE"; touch "$STATE/statusbar_off"; stop_proc -x waybar; echo "status bar: off" ;;
+    *) echo "usage: xlin statusbar on|off"; return 1 ;;
+  esac
+}
 start_swaync() {
   have swaync || return 0
   pkill -x mako 2>/dev/null; pkill -x dunst 2>/dev/null     # only one program can own the notifications
@@ -1353,7 +1375,7 @@ part_reset() {
   case "$1" in
     runbar|dock) rm -f "$STATE/dock_autohide" "$STATE/dock_icon"; pins_runbar_default; dock_restart
                  echo "run bar: default size, auto-hide and pinned apps" ;;
-    bar|topbar|waybar) rm -f "$STATE/bar_hidden"; bar_apply 2>/dev/null || true
+    bar|topbar|waybar) rm -f "$STATE/bar_hidden" "$STATE/statusbar_off"; bar_apply 2>/dev/null || true
                  stop_proc -x waybar; start_waybar; echo "top bar: all buttons shown, restarted" ;;
     panel|swaync) src="$(head -n1 "$STATE/source" 2>/dev/null || true)"
                  [[ -f "$src/config/swaync/config.json" ]] && cp "$src/config/swaync/config.json" "$HOME/.config/swaync/config.json"
@@ -1376,7 +1398,7 @@ restart_all() {
 cmd_reset() {
   local f
   for f in theme accent dock_autohide dock_icon cursor_size terminal desktop_off bar_hidden idle_off idle_minutes \
-           nightlight ui_font ui_size warm_off no-banner recent welcomed widget_opacity scroll; do
+           nightlight ui_font ui_size warm_off no-banner recent welcomed widget_opacity scroll statusbar_off; do
     rm -f "$STATE/$f"
   done
   rm -f "$XLIN_HOME/desktop.json"
@@ -1387,7 +1409,7 @@ cmd_reset() {
   apply_cursor 2>/dev/null || true
   cmd_desktop restart quiet >/dev/null 2>&1 || true
   dock_restart >/dev/null 2>&1 || true
-  pkill -SIGUSR2 waybar 2>/dev/null || true
+  pgrep -x waybar >/dev/null && pkill -SIGUSR2 waybar 2>/dev/null || start_waybar
   echo "Xlin-soft settings are back to the defaults"
   # the Welcome tour shows again after a reset
   ( sleep 2; cmd_welcome --first ) >/dev/null 2>&1 &
@@ -1434,7 +1456,7 @@ trim_logs() {
 cmd_start() {
   mkdir -p "$HOME/.cache/xlin"
   trim_logs
-  pgrep -x waybar >/dev/null || setsid waybar >>"$HOME/.cache/xlin/waybar.log" 2>&1 &
+  pgrep -x waybar >/dev/null || start_waybar
   if ! pgrep -x swaync >/dev/null; then
     # only one program can own desktop notifications, so stop mako/dunst first
     pkill -x mako 2>/dev/null; pkill -x dunst 2>/dev/null
@@ -1968,12 +1990,12 @@ start_extras() {
 
 # Hide bar parts this computer does not have (battery on a desktop). Safe to run any time.
 # ---- top bar buttons: xlin bar [status | show <name> | hide <name> | reset]
-BAR_NAMES="settings tools wifi bluetooth sound battery power panel"
+BAR_NAMES="settings tools wifi bluetooth sound battery clock power panel"
 bar_module() {
   case "$1" in
     settings) echo custom/settings ;; tools) echo custom/tools ;; wifi) echo network ;;
     bluetooth) echo bluetooth ;; sound) echo pulseaudio ;; battery) echo battery ;;
-    power) echo custom/session ;; panel) echo custom/panel ;;
+    clock) echo clock ;; power) echo custom/session ;; panel) echo custom/panel ;;
   esac
 }
 
@@ -2336,6 +2358,8 @@ ${B}xlin battery${R}
   xlin battery                   charge level and power mode
   xlin battery mode              show the power mode
   xlin battery mode saver|balanced|performance
+  xlin statusbar [on|off]          show or hide the top bar
+  xlin volume                      volume dropdown (like the battery menu)
   xlin scroll [normal|natural]     scroll direction (normal by default)
   xlin pinpath runbar|launcher|both <path>   pin a file or folder like an app
   xlin power                     open the battery dropdown (GUI)
@@ -2448,6 +2472,8 @@ case "${1:-help}" in
   unpin)     shift; cmd_unpin "${1:-}" ;;
   pinpath)   shift; cmd_pinpath "$@" ;;
   scroll)    shift; cmd_scroll "${1:-}" ;;
+  statusbar|topbar) shift; cmd_statusbar "${1:-}" ;;
+  volume)    _tools_window volume "The volume menu" ;;
   restore-shown) cmd_restore_shown ;;
   defaults)  shift; cmd_defaults "$@" ;;
   dock|runbar) shift; case "${1:-check}" in

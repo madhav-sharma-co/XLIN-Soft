@@ -66,10 +66,10 @@ for _, name in ipairs({ "Settings", "Debug", "Media", "Store", "Monitor", "Welco
     app(name)
 end
 -- menus: they open in place, top right under the bar
-for _, name in ipairs({ "Tools", "Power", "Session", "Wifi", "Bluetooth" }) do
+for _, name in ipairs({ "Tools", "Power", "Session", "Wifi", "Bluetooth", "Volume" }) do
     app(name, { center = false })
 end
-hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session|Wifi|Bluetooth))$" }, move = "(monitor_w-window_w-12) 46" })
+hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session|Wifi|Bluetooth|Volume))$" }, move = "(monitor_w-window_w-12) 46" })
 
 -- ---- shortcuts ---------------------------------------------------------------------
 -- Every key is the first letter of what it does.
