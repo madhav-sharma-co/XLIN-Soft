@@ -187,6 +187,10 @@ def live_css():
     if _LIVE:
         return
     from gi.repository import Gdk, Gio, GLib
+    try:    # a scroll bar is always there on the right (not only while scrolling), so long pages can be navigated
+        Gtk.Settings.get_default().set_property("gtk-overlay-scrolling", False)
+    except Exception:
+        pass
     prov = Gtk.CssProvider()
     state = {"pending": False}
 

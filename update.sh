@@ -10,6 +10,17 @@ export XLIN_HOME
 [[ $EUID -ne 0 ]] || { echo "Run as your normal user, not root."; exit 1; }
 say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# full system update, or only Xlin-soft? (flags: --full | --xlin-only; asks when run in a terminal)
+source "$SRC/scripts/update-mode.sh"
+UPDATE_MODE="$(xlin_update_mode "$@")"
+if [[ "$UPDATE_MODE" == full ]]; then
+  unset XLIN_NO_UPGRADE
+  say "Full system update + Xlin-soft"
+else
+  export XLIN_NO_UPGRADE=1
+  say "Updating only Xlin-soft (no system update)"
+fi
+
 say "Copying Xlin-soft files"
 mkdir -p "$XLIN_HOME/state" "$XLIN_HOME/wallpapers" "$HOME/.config/hypr" "$HOME/.config/waybar" "$HOME/.config/swaync"
 echo "$SRC" >"$XLIN_HOME/state/source"

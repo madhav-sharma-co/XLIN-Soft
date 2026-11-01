@@ -202,3 +202,12 @@ window.xlin-start .launcher-item {
 }
 window.xlin-start .launcher-item.selected { background-color: @C_SOFT@; }
 window.xlin-start .launcher-name { color: @C_INK@; font-size: @C_PT9@pt; font-weight: 700; }
+
+/* the scroll bar on the right: slim, always visible, drag it or click the track to move up and down */
+scrollbar.vertical { min-width: 10px; background: transparent; margin: 2px 2px 2px 0; }
+scrollbar.horizontal { min-height: 10px; background: transparent; margin: 0 2px 2px 2px; }
+scrollbar trough { background-color: @C_SOFT@; border-radius: 6px; border: none; min-width: 8px; min-height: 8px; }
+scrollbar slider { background-color: @C_MUTED@; border-radius: 6px; border: none; min-width: 6px; min-height: 36px; margin: 1px; }
+scrollbar slider:hover { background-color: @C_ACCENT@; }
+scrollbar slider:active { background-color: @C_ACCENT@; }
+scrollbar button { min-width: 0; min-height: 0; padding: 0; opacity: 0; }

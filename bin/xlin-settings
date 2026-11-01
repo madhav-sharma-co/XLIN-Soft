@@ -1158,7 +1158,7 @@ def about_page(win):
     buttons = Gtk.Box(spacing=8)
     buttons.append(button("Check again", check))
     buttons.append(button("Update Xlin-soft", run_update))
-    u.append(row("Software update", None, buttons))
+    u.append(row("Software update", "A window opens and asks: full system update (y), or only Xlin-soft (n, small download)", buttons))
     u.append(row("Status", None, status))
     check()
 

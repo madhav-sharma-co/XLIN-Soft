@@ -35,7 +35,7 @@ Run it as your normal user, not root. The installer backs up the Waybar, swaync 
 files it changes and installs whatever is missing (from the Arch repositories, and the AUR when
 you have `paru` or `yay`).
 
-**Update:** open **Settings → About → Update Xlin-soft**, or run `xlin update`. By hand:
+**Update:** open **Settings → About → Update Xlin-soft**, or run `xlin update`. It asks whether you want a full system update (y) or only Xlin-soft (n, small download). By hand:
 
     cd ~/.Xlin-soft && git pull && bash update.sh
 

@@ -2160,7 +2160,7 @@ cmd_update() {
   fi
   echo "Updating Xlin-soft from $src ..."
   git -C "$src" pull --ff-only || { echo "Could not update $src (files changed there, or the history was rewritten). Look with: git -C $src status"; return 1; }
-  (cd "$src" && bash ./update.sh)
+  (cd "$src" && bash ./update.sh "$@")
 }
 
 # xlin deps: install anything Xlin-soft needs that is missing (same step as install.sh / update.sh)
@@ -2363,7 +2363,7 @@ case "${1:-help}" in
   notes)     shift; cmd_notes "${1:-}" ;;
   adapt)     cmd_adapt ;;
   hook)      cmd_hook ;;
-  update)    shift; cmd_update "${1:-}" ;;
+  update)    shift; cmd_update "$@" ;;
   cursor)    shift; cmd_cursor "${1:-}" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   accent)    shift; cmd_accent "${1:-}" ;;
