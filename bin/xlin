@@ -724,6 +724,23 @@ cmd_unhide() {
   done < <(hyprctl clients -j | jq -r '[.[] | select(.workspace.name=="special:xlin-hidden")] | sort_by(.focusHistoryID) | .[].address')
 }
 
+# A hidden window that the Run Bar (or Alt+Tab) asks for makes Hyprland show the hidden-windows space on top of the
+# desktop, with the window stuck in it: it then could not be hidden again and the screen stayed covered. xlin-dock-watch
+# calls this when that happens: the window becomes a normal window of the current workspace and the cover is put away.
+cmd_restore_shown() {
+  have hyprctl && have jq || return 1
+  hy_special_shown xlin-hidden || return 0
+  sleep 0.05                                         # let Hyprland finish focusing the window that was asked for
+  local ws addr
+  ws="$(hyprctl monitors -j | jq -r '[.[] | select(.focused)][0].activeWorkspace.id')"
+  addr="$(hyprctl activewindow -j 2>/dev/null | jq -r 'select(.workspace.name=="special:xlin-hidden") | .address')"
+  [[ -n "$addr" ]] || addr="$(hyprctl clients -j | jq -r '[.[] | select(.workspace.name=="special:xlin-hidden")] | sort_by(.focusHistoryID) | .[0].address // empty')"
+  [[ -n "$addr" && "$ws" =~ ^[0-9]+$ ]] || { hy_special_close xlin-hidden; return 0; }
+  hy_move_silent "$ws" "$addr"
+  hy_special_close xlin-hidden                       # other hidden windows stay hidden
+  hy_focus "address:$addr"
+}
+
 # The Launcher is the Start menu (xlin-start): search, pinned, recent and every app. rofi is only a fallback.
 cmd_launcher() {
   warm_activate dev.xlin.Start && return 0
@@ -2429,6 +2446,7 @@ case "${1:-help}" in
   unpin)     shift; cmd_unpin "${1:-}" ;;
   pinpath)   shift; cmd_pinpath "$@" ;;
   scroll)    shift; cmd_scroll "${1:-}" ;;
+  restore-shown) cmd_restore_shown ;;
   defaults)  shift; cmd_defaults "$@" ;;
   dock|runbar) shift; case "${1:-check}" in
                check) dock_check ;;

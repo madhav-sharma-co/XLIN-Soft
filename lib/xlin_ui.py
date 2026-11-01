@@ -50,9 +50,22 @@ def _address(win):
     return mine[0]["address"] if mine else None
 
 
+def _in_hidden_cover(addr):
+    """True when the window sits in the hidden-windows space that is shown on top of the desktop."""
+    try:
+        out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, timeout=2).stdout
+        return any(c.get("address") == addr and c.get("workspace", {}).get("name") == "special:xlin-hidden"
+                   for c in json.loads(out))
+    except Exception:
+        return False
+
+
 def hide_window(win=None):
-    """Send this window out of sight (Super+H or `xlin unhide` brings it back)."""
+    """Send this window out of sight (the Run Bar, Alt+Tab, Super+H or `xlin unhide` bring it back)."""
     addr = _address(win)
+    if addr and _in_hidden_cover(addr):
+        # the window was brought back by something that left it in the hidden space: make it a normal window first
+        subprocess.run(["xlin", "restore-shown"], capture_output=True, timeout=5)
     if addr:
         if hypr_is_lua():
             hypr_lua('hl.dispatch(hl.dsp.window.move({ workspace = "special:xlin-hidden", follow = false, '

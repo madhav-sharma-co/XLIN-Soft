@@ -22,6 +22,18 @@ hy_move_silent() {   # <workspace> <window address>
     hy_lua "hl.dispatch(hl.dsp.window.move({ workspace = \"$1\", follow = false, window = \"address:$2\" }))"
   else hyprctl dispatch movetoworkspacesilent "$1,address:$2" >/dev/null 2>&1; fi
 }
+# hy_special_shown <name>: is that special workspace on screen right now?
+hy_special_shown() {
+  hyprctl monitors -j 2>/dev/null | jq -e --arg n "special:$1" 'any(.[]; .specialWorkspace.name == $n)' >/dev/null 2>&1
+}
+# hy_special_close <name>: put a special workspace away (the windows in it stay hidden)
+hy_special_close() {
+  hy_special_shown "$1" || return 0
+  if is_lua; then hy_lua "hl.dispatch(hl.dsp.workspace.toggle_special(\"$1\"))"; sleep 0.05; fi
+  # older Hyprland, or the Lua call did not exist: the classic dispatcher
+  hy_special_shown "$1" && hyprctl dispatch togglespecialworkspace "$1" >/dev/null 2>&1
+  return 0
+}
 hy_focus() {         # <window selector, e.g. address:0x1 or class:dev.xlin.Monitor>
   if is_lua; then hy_lua "hl.dispatch(hl.dsp.focus({ window = \"$1\" }))"
   else hyprctl dispatch focuswindow "$1" >/dev/null 2>&1; fi
