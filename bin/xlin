@@ -707,8 +707,10 @@ launch_id() {
     # shellcheck disable=SC2086
     [[ -n "$exec_line" ]] && { cmd_term -e $exec_line; return; }
   fi
-  if have gtk-launch; then gtk-launch "$1" >/dev/null 2>&1 &
-  else gio launch "$f" >/dev/null 2>&1 &
+  # without the layer-shell preload the Launcher and desktop carry (older copies still running pass it on)
+  if have gtk-launch; then env -u LD_PRELOAD -u XLIN_START_REEXEC -u XLIN_DESKTOP_REEXEC gtk-launch "$1" >/dev/null 2>&1 &
+  elif [[ -n "$f" ]]; then env -u LD_PRELOAD gio launch "$f" >/dev/null 2>&1 &
+  else notify "Could not open $1" "Its launcher entry was not found"
   fi
 }
 

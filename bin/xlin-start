@@ -18,6 +18,15 @@ if not os.environ.get("XLIN_START_REEXEC"):
         os.environ["LD_PRELOAD"] = (old + ":" if old else "") + libs[0]
         os.environ["XLIN_START_REEXEC"] = "1"
         os.execv(sys.executable, [sys.executable] + sys.argv)
+else:
+    # The preload did its job when this program started. Programs opened from here (Firefox, Claude, ...) must
+    # not inherit it: gtk4-layer-shell loaded into another program stops it from opening.
+    _keep = [p for p in os.environ.get("LD_PRELOAD", "").split(":") if p and "libgtk4-layer-shell" not in p]
+    if _keep:
+        os.environ["LD_PRELOAD"] = ":".join(_keep)
+    else:
+        os.environ.pop("LD_PRELOAD", None)
+    os.environ.pop("XLIN_START_REEXEC", None)
 
 import gi  # noqa: E402
 

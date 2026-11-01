@@ -33,6 +33,8 @@ jobs:
         run: bash tests/test-brightness.sh
       - name: Hide and restore windows
         run: bash tests/test-hide.sh
+      - name: Apps keep a clean environment
+        run: bash tests/test-launch-env.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual
