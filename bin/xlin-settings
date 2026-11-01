@@ -1183,8 +1183,9 @@ def about_page(win):
         try:
             dlg = Gtk.AlertDialog()
             dlg.set_message("Reset Xlin-soft settings?")
-            dlg.set_detail("Theme, accent, bars, desktop widgets, fonts and other options go back to the defaults. "
-                           "Pinned apps go back to the Xlin-soft defaults. Your wallpaper and files are kept.")
+            dlg.set_detail("Everything you changed goes back to how a fresh install looks: theme, accent, wallpaper, fonts, "
+                           "animations, scrolling, bars, pinned apps, desktop icons and widgets, default apps, "
+                           "sleep times and more. Your own files, notes and added wallpapers are kept.")
             dlg.set_buttons(["Cancel", "Reset"])
             dlg.set_cancel_button(0)
             dlg.set_default_button(0)

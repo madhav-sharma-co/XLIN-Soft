@@ -977,6 +977,7 @@ dock_restart() { dock_stop; dock_check; }
 # after a restart: if the Run Bar did not come up, start it again (it must never stay gone)
 dock_verify() {
   local i
+  have nwg-dock-hyprland || return 0
   for i in 1 2 3 4 5; do sleep 0.3; pgrep -f '^nwg-dock-hyprland' >/dev/null && return 0; dock_start; done
   return 0
 }
@@ -1264,8 +1265,9 @@ _tools_window() {   # _tools_window <mode> <name for the error message>
   mkdir -p "$HOME/.cache/xlin"
   setsid xlin-tools "$mode" >>"$HOME/.cache/xlin/tools.log" 2>&1 &
 }
-cmd_wifi()      { _tools_window wifi "The Wi-Fi menu"; }
-cmd_bluetooth() { _tools_window bluetooth "The Bluetooth menu"; }
+cmd_wifi_menu()      { _tools_window wifi "The Wi-Fi menu"; }
+cmd_bluetooth_menu() { _tools_window bluetooth "The Bluetooth menu"; }
+cmd_volume_menu()    { _tools_window volume "The volume menu"; }
 cmd_manual()    { _tools_window manual "The Xlin-soft Manual"; }
 
 # Power menu (Lock Screen, Sleep, Log Out, Power Off). Toggles like the Tools menu.
@@ -1396,21 +1398,37 @@ restart_all() {
 }
 
 cmd_reset() {
-  local f
-  for f in theme accent dock_autohide dock_icon cursor_size terminal desktop_off bar_hidden idle_off idle_minutes \
-           nightlight ui_font ui_size warm_off no-banner recent welcomed widget_opacity scroll statusbar_off; do
-    rm -f "$STATE/$f"
-  done
-  rm -f "$XLIN_HOME/desktop.json"
+  # things that are running because of a choice: stop them first
+  cmd_nightlight off >/dev/null 2>&1 || true
+  have swaync-client && swaync-client -df >/dev/null 2>&1 || true            # do not disturb off
+  have powerprofilesctl && powerprofilesctl set balanced >/dev/null 2>&1 || true
+  stop_owned hypridle 2>/dev/null || true
+  # every saved choice, whatever it is (new settings are covered without listing them): theme, accent, wallpaper,
+  # fonts, animations, scrolling, bars, pins, sleep and lock times, welcome flag ... Only the install record stays.
+  find "$STATE" -maxdepth 1 -type f ! -name source ! -name '.*' ! -name '*.pid' -delete 2>/dev/null
+  rm -f "$XLIN_HOME/desktop.json"                                            # desktop icons, folders, widgets
   pins_runbar_default; pins_launcher_default
-  cmd_defaults reset >/dev/null 2>&1 || true
-  cmd_theme light >/dev/null 2>&1 || true
+  cmd_defaults reset >/dev/null 2>&1 || true                                 # Xlin-soft Files, Media, Terminal
+  write_opacity 0.88 0.80 quiet >/dev/null 2>&1 || true                     # window transparency
+  write_font >/dev/null 2>&1 || true                                         # terminal font
+  write_anim smooth >/dev/null 2>&1 || true                                  # animations
+  write_scroll normal >/dev/null 2>&1 || true                                # scroll direction
+  cmd_theme light >/dev/null 2>&1 || true                                    # theme, accent, font, size, colours
+  part_reset panel >/dev/null 2>&1 || true                                   # control panel layout
   bar_apply 2>/dev/null || true
   apply_cursor 2>/dev/null || true
+  cmd_wallpaper restore >/dev/null 2>&1 || true
+  if have hyprctl; then                                                      # apply the generated Hyprland files now
+    if is_lua; then
+      hy_lua "$(cat "$HOME/.config/hypr/xlin-anim.lua" "$HOME/.config/hypr/xlin-scroll.lua" "$HOME/.config/hypr/xlin-opacity.lua" 2>/dev/null)"
+    else hyprctl reload >/dev/null 2>&1; fi
+  fi
+  have hypridle && cmd_idle on >/dev/null 2>&1 || true                       # lock after 5 min, sleep after 5 min
   cmd_desktop restart quiet >/dev/null 2>&1 || true
-  dock_restart >/dev/null 2>&1 || true
+  dock_restart >/dev/null 2>&1 || true; dock_verify
+  stop_proc -f '[x]lin-(start|store|files|monitor|debug)( |$)'               # waiting apps start fresh
   pgrep -x waybar >/dev/null && pkill -SIGUSR2 waybar 2>/dev/null || start_waybar
-  echo "Xlin-soft settings are back to the defaults"
+  echo "Xlin-soft is back to the defaults (your files, notes and added wallpapers are kept)"
   # the Welcome tour shows again after a reset
   ( sleep 2; cmd_welcome --first ) >/dev/null 2>&1 &
 }
@@ -2456,9 +2474,10 @@ case "${1:-help}" in
   accent)    shift; cmd_accent "${1:-}" ;;
   welcome)   shift; cmd_welcome "${1:-}" ;;
   keys|shortcuts) shift; cmd_keys "${1:-}" ;;
-  wifi)      shift; cmd_wifi "$@" ;;
-  bluetooth|bt) shift; cmd_bluetooth "$@" ;;
-  sound|volume) shift; cmd_sound "$@" ;;
+  wifi|network) shift; if (($#)); then cmd_wifi "$@"; else cmd_wifi_menu; fi ;;
+  bluetooth|bt) shift; if (($#)); then cmd_bluetooth "$@"; else cmd_bluetooth_menu; fi ;;
+  sound)     shift; cmd_sound "$@" ;;
+  volume)    shift; if (($#)); then cmd_sound "$@"; else cmd_volume_menu; fi ;;
   brightness) shift; cmd_brightness "$@" ;;
   battery)   shift; cmd_battery "$@" ;;
   theme)     shift; cmd_theme "${1:-}" ;;
@@ -2473,7 +2492,6 @@ case "${1:-help}" in
   pinpath)   shift; cmd_pinpath "$@" ;;
   scroll)    shift; cmd_scroll "${1:-}" ;;
   statusbar|topbar) shift; cmd_statusbar "${1:-}" ;;
-  volume)    _tools_window volume "The volume menu" ;;
   restore-shown) cmd_restore_shown ;;
   defaults)  shift; cmd_defaults "$@" ;;
   dock|runbar) shift; case "${1:-check}" in
@@ -2506,8 +2524,6 @@ case "${1:-help}" in
   settings)  shift; cmd_settings "${1:-}" ;;
   panel)     shift; case "${1:-}" in restart|reset) part_"$1" panel ;; *) cmd_panel ;; esac ;;
   power)     cmd_power ;;
-  wifi|network) cmd_wifi ;;
-  bluetooth|bt) cmd_bluetooth ;;
   manual|help-me) cmd_manual ;;
   lock)      cmd_lock ;;
   session)   cmd_session ;;

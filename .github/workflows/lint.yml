@@ -16,7 +16,7 @@ jobs:
       - name: Process ownership regression tests
         run: bash tests/test-process-ownership.sh
       - name: No duplicated functions in bin/xlin
-        run: test -z "$(grep -E '^[a-z_]+\(\) \{' bin/xlin | sort | uniq -d)"
+        run: test -z "$(grep -oE '^[a-z_]+\(\)' bin/xlin | sort | uniq -d)"
       - name: Install list consistency
         run: bash tests/test-install-lists.sh
       - name: Default pins regression tests
@@ -37,6 +37,8 @@ jobs:
         run: bash tests/test-launch-env.sh
       - name: Status bar, volume menu, Run Bar
         run: bash tests/test-bars.sh
+      - name: Reset and menu commands
+        run: bash tests/test-reset.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual
