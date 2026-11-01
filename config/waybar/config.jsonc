@@ -12,7 +12,7 @@
     "format": "X",
     "format-alt": "X",
     "tooltip": false,
-    "on-click": "xlin launcher"
+    "on-click": "xlin manual"
   },
 
   "hyprland/window": {
@@ -41,7 +41,8 @@
     "tooltip-format-wifi": "{essid} ({signalStrength}%)",
     "tooltip-format-ethernet": "{ifname}",
     "tooltip-format-disconnected": "Wi-Fi off",
-    "on-click": "xlin settings wifi"
+    "on-click": "xlin wifi",
+    "on-click-right": "xlin settings wifi"
   },
 
   "bluetooth": {
@@ -49,7 +50,8 @@
     "format-off": "",
     "format-disabled": "",
     "tooltip-format": "Bluetooth: {status}",
-    "on-click": "xlin settings bluetooth"
+    "on-click": "xlin bluetooth",
+    "on-click-right": "xlin settings bluetooth"
   },
 
   "pulseaudio": {

@@ -8,6 +8,9 @@ The first version number of Xlin-soft. We stay on 0.1.0 while the system is bein
 - Control panel: the buttons now show whether they are on or off, like a phone's control centre. A switched-on button is filled with the accent colour (Wi-Fi, Bluetooth, Airplane, Dark mode, Night light, Do not disturb), a switched-off one stays soft. New Do not disturb button next to Night light. `xlin state <name>` prints true or false for each
 - Default pinned apps are only Xlin-soft's own: the desktop has 2 (Files, Terminal), the Run Bar 6 (+ Settings, Store, Media, SysMon) and the Launcher 12 (+ SysDeb, Calculator, Calendar, Notes, Clock, Screenshot). A fresh install gets them, and `xlin reset`, `xlin runbar reset`, `xlin launcher reset` and `xlin pins reset` restore them. Pins you already have are never changed by an update
 - The Run Bar no longer disappears when nothing is open and nothing is pinned: it always stays, with the Launcher button
+- The **X button** on the top bar opens the new **Xlin-soft Manual** (introduction, basics, troubleshooting, who made it) instead of the Launcher (`xlin manual`).
+- **Wi-Fi and Bluetooth** on the top bar open small dropdown menus like the battery menu: switch on or off, connect or disconnect with one click, password for new secured networks (`xlin wifi`, `xlin bluetooth`). Right-click the icon for the full Settings page.
+- The **Welcome tour** now shows after a fresh install and after `xlin reset` (an old "already welcomed" flag from an earlier install used to hide it).
 - Everything listed below was built before the numbers were reset to 0.1.0
 
 ## Development history (numbers before the reset)

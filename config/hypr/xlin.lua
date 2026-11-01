@@ -61,14 +61,14 @@ local function app(name, extra)
     hl.window_rule(rule)
 end
 for _, name in ipairs({ "Settings", "Debug", "Media", "Store", "Monitor", "Welcome", "Calculator", "Notes", "Clock",
-                        "Calendar", "Screenshot", "Files", "Desktop" }) do
+                        "Calendar", "Screenshot", "Files", "Desktop", "Manual" }) do
     app(name)
 end
 -- menus: they open in place, top right under the bar
-for _, name in ipairs({ "Tools", "Power", "Session" }) do
+for _, name in ipairs({ "Tools", "Power", "Session", "Wifi", "Bluetooth" }) do
     app(name, { center = false })
 end
-hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session))$" }, move = "(monitor_w-window_w-12) 46" })
+hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session|Wifi|Bluetooth))$" }, move = "(monitor_w-window_w-12) 46" })
 
 -- ---- shortcuts ---------------------------------------------------------------------
 -- Every key is the first letter of what it does.

@@ -48,7 +48,7 @@ you have `paru` or `yay`).
 | Piece           | What it does |
 |-----------------|--------------|
 | Lock screen     | Your blurred wallpaper, time, date, battery, name and password (Super+L). Locks by itself when idle, and the laptop sleeps after 5 minutes without activity (changeable in Settings) |
-| Top bar         | X launcher, current app, settings, tools, Wi-Fi, Bluetooth, sound, battery, date and time, power and control panel. Every button can be hidden |
+| Top bar         | X (Xlin-soft Manual), current app, settings, tools, Wi-Fi and Bluetooth (click for a quick connect menu), sound, battery, date and time, power and control panel. Every button can be hidden |
 | Launcher        | Super+Space: search, pinned apps, recent apps and the full All apps list. Right-click an app: Open, pin to the Run Bar, pin to the Launcher |
 | Run Bar         | The bottom bar with pinned and running apps and the Launcher button. It is always there, even with nothing open. Starts with six Xlin-soft apps pinned (the Launcher has twelve, the desktop two); `xlin pins reset` brings the defaults back |
 | Control panel   | Wi-Fi, Bluetooth, airplane mode, dark mode, night light and do not disturb (switched-on buttons are filled with the accent colour), volume, brightness, power mode and notifications (Super+C) |

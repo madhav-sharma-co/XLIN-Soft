@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import date, datetime
 
@@ -48,7 +49,12 @@ SESSION_ITEMS = [("lock", "\uf023", "Lock Screen", "lock", False),
                  ("logout", "\uf08b", "Log Out", "logout", True),
                  ("reboot", "\uf021", "Restart", "reboot", True),
                  ("poweroff", "\uf011", "Power Off", "poweroff", True)]
-ALL_IDS = {MENU_ID, POWER_ID, SESSION_ID} | {t[1] for t in TOOLS.values()}
+WIFI_ID, WIFI_W, WIFI_H = "dev.xlin.Wifi", 330, 440
+BT_ID, BT_W, BT_H = "dev.xlin.Bluetooth", 320, 380
+MANUAL_ID, MANUAL_W, MANUAL_H = "dev.xlin.Manual", 560, 600
+# the windows that are not one of the TOOLS: key -> Wayland app id
+EXTRA_IDS = {"power": POWER_ID, "session": SESSION_ID, "wifi": WIFI_ID, "bluetooth": BT_ID, "manual": MANUAL_ID}
+ALL_IDS = {MENU_ID, POWER_ID, SESSION_ID, WIFI_ID, BT_ID, MANUAL_ID} | {t[1] for t in TOOLS.values()}
 MODES = [("power-saver", "Power saver", "Longer battery life"),
          ("balanced", "Balanced", "Good for everyday use"),
          ("performance", "Performance", "Fastest, uses more power")]
@@ -1176,6 +1182,412 @@ class PowerWindow(ToolWindow):
         return False
 
 
+# ---------------------------------------------------------------- Wi-Fi and Bluetooth menus
+def cmd_out(cmd, timeout=8):
+    """Run a command, never raise: (ok, stdout)."""
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode == 0, p.stdout.strip()
+    except Exception:
+        return False, ""
+
+
+def split_nmcli(line):
+    """nmcli -t escapes a colon inside a value as \\: ; split on the other colons."""
+    import re
+    return [f.replace("\\:", ":").replace("\\\\", "\\") for f in re.split(r"(?<!\\):", line)]
+
+
+def signal_bars(pct):
+    return "▂▄▆█"[0 if pct < 25 else 1 if pct < 50 else 2 if pct < 75 else 3]
+
+
+class Dropdown:
+    """Closes like a dropdown: Esc, or a click anywhere else."""
+
+    def setup_dropdown(self):
+        self.was_active = False
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key_pressed)
+        self.add_controller(keys)
+        self.connect("notify::is-active", self.on_active)
+
+    def on_key_pressed(self, _c, keyval, _code, _state):
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        return False
+
+    def on_active(self, *_a):
+        if self.is_active():
+            self.was_active = True
+        elif self.was_active and not getattr(self, "keep_open", False):
+            GLib.timeout_add(150, self.close_if_inactive)
+
+    def close_if_inactive(self):
+        if not self.is_active():
+            self.close()
+        return False
+
+    def close_now(self):
+        self.close()
+        return False
+
+
+def menu_row(title, sub="", mark=""):
+    """One clickable line of a menu: title, small text under it, a mark on the right."""
+    row = Gtk.Button()
+    row.add_css_class("tools-item")
+    box = Gtk.Box(spacing=10)
+    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
+    a = Gtk.Label(label=title, xalign=0)
+    a.set_ellipsize(3)
+    text.append(a)
+    if sub:
+        b = Gtk.Label(label=sub, xalign=0)
+        b.add_css_class("tools-sub")
+        b.set_ellipsize(3)
+        text.append(b)
+    box.append(text)
+    tick = Gtk.Label(label=mark)
+    box.append(tick)
+    row.set_child(box)
+    return row
+
+
+class WifiWindow(ToolWindow, Dropdown):
+    """Wi-Fi dropdown: switch Wi-Fi on or off, see nearby networks, connect or disconnect with one click."""
+
+    def __init__(self, app):
+        super().__init__(app, "Wi-Fi", WIFI_W, WIFI_H, with_close=False)
+        self.busy = False          # a switch change made by the program itself must not run a command
+        self.pending = None
+        head = Gtk.Box(spacing=8)
+        title = Gtk.Label(label="Wi-Fi", xalign=0, hexpand=True)
+        title.add_css_class("power-big")
+        head.append(title)
+        self.switch = Gtk.Switch()
+        self.switch.set_valign(Gtk.Align.CENTER)
+        self.switch.connect("state-set", self.on_switch)
+        head.append(self.switch)
+        self.body.append(head)
+        self.status = Gtk.Label(xalign=0, wrap=True)
+        self.status.add_css_class("tools-sub")
+        self.body.append(self.status)
+
+        self.list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        sc = Gtk.ScrolledWindow(vexpand=True)
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.set_child(self.list)
+        self.body.append(sc)
+
+        # password for a new secured network (shown only when needed)
+        self.pw_box = Gtk.Box(spacing=6)
+        self.pw = Gtk.PasswordEntry(hexpand=True, show_peek_icon=True)
+        self.pw.connect("activate", lambda _e: self.send_password())
+        go = Gtk.Button(label="Connect")
+        go.connect("clicked", lambda _b: self.send_password())
+        self.pw_box.append(self.pw)
+        self.pw_box.append(go)
+        self.pw_box.set_visible(False)
+        self.body.append(self.pw_box)
+
+        more = Gtk.Button(label="Wi-Fi settings…")
+        more.add_css_class("tools-item")
+        more.connect("clicked", lambda _b: (xlin_ui.run(["xlin", "settings", "wifi"]), self.close()))
+        self.body.append(more)
+
+        self.setup_dropdown()
+        self.refresh()
+        GLib.timeout_add_seconds(6, self.refresh)
+        # look for networks again right now (the list updates when the scan is done)
+        threading.Thread(target=lambda: (cmd_out(["nmcli", "dev", "wifi", "rescan"], 10),
+                                         GLib.idle_add(self.refresh)), daemon=True).start()
+
+    # ---- reading the state (in a thread, so the menu never freezes)
+    def refresh(self):
+        if not self.get_visible():
+            return False
+        threading.Thread(target=self.read_state, daemon=True).start()
+        return True
+
+    def read_state(self):
+        _ok, radio = cmd_out(["nmcli", "radio", "wifi"], 4)
+        nets, known, dev = {}, set(), ""
+        if radio == "enabled":
+            ok, out = cmd_out(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list",
+                               "--rescan", "no"], 6)
+            for line in out.splitlines() if ok else []:
+                f = split_nmcli(line)
+                if len(f) < 4 or not f[1]:
+                    continue
+                use, ssid, sig, sec = f[0] == "*", f[1], int(f[2] or 0), f[3]
+                old = nets.get(ssid)
+                if old is None or use or (not old["use"] and sig > old["sig"]):
+                    nets[ssid] = {"ssid": ssid, "use": use, "sig": sig, "sec": bool(sec and sec != "--")}
+            ok, out = cmd_out(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], 4)
+            known = {split_nmcli(line)[0] for line in out.splitlines() if "wireless" in line}
+            _ok, devs = cmd_out(["nmcli", "-t", "-f", "DEVICE,TYPE", "dev"], 4)
+            dev = next((split_nmcli(line)[0] for line in devs.splitlines() if line.endswith(":wifi")), "")
+        GLib.idle_add(self.show, radio, list(nets.values()), known, dev)
+
+    def show(self, radio, nets, known, dev):
+        self.dev = dev
+        self.busy = True
+        self.switch.set_active(radio == "enabled")
+        self.busy = False
+        while (c := self.list.get_first_child()) is not None:
+            self.list.remove(c)
+        if radio != "enabled":
+            self.status.set_text("Wi-Fi is off")
+            return False
+        nets.sort(key=lambda n: (not n["use"], -n["sig"]))
+        cur = next((n for n in nets if n["use"]), None)
+        if self.pending:
+            pass       # keep the "Connecting..." message until the command is done
+        elif cur:
+            self.status.set_text(f"Connected to {cur['ssid']}")
+        else:
+            self.status.set_text("Not connected" if nets else "No networks found")
+        for n in nets[:10]:
+            mark = "✓" if n["use"] else ("" if n["sec"] else "")
+            sub = ("Connected · click to disconnect" if n["use"]
+                   else "Saved network" if n["ssid"] in known else "Secured" if n["sec"] else "Open")
+            row = menu_row(f"{signal_bars(n['sig'])}  {n['ssid']}", sub, mark)
+            if n["use"]:
+                row.add_css_class("tools-active")
+            row.connect("clicked", lambda _b, net=n, k=known: self.pick(net, k))
+            self.list.append(row)
+        return False
+
+    # ---- actions (all in threads)
+    def on_switch(self, _s, state):
+        if not self.busy:
+            threading.Thread(target=lambda: (cmd_out(["nmcli", "radio", "wifi", "on" if state else "off"], 8),
+                                             GLib.idle_add(self.refresh)), daemon=True).start()
+            self.status.set_text("Turning Wi-Fi on…" if state else "Turning Wi-Fi off…")
+        return False
+
+    def run_and_refresh(self, cmd, doing, timeout=30):
+        self.pending = doing
+        self.status.set_text(doing)
+
+        def work():
+            ok, out = cmd_out(cmd, timeout)
+            GLib.idle_add(self.done, ok, out)
+        threading.Thread(target=work, daemon=True).start()
+
+    def done(self, ok, out):
+        self.pending = None
+        if not ok:
+            self.status.set_text((out.splitlines() or ["That did not work."])[-1][:80]
+                                 if out else "Could not connect. Check the password and try again.")
+        self.read_threaded()
+        return False
+
+    def read_threaded(self):
+        threading.Thread(target=self.read_state, daemon=True).start()
+
+    def pick(self, net, known):
+        self.pw_box.set_visible(False)
+        ssid = net["ssid"]
+        if net["use"]:
+            self.run_and_refresh(["nmcli", "dev", "disconnect", self.dev or "wlan0"], f"Disconnecting from {ssid}…", 10)
+        elif ssid in known:
+            self.run_and_refresh(["nmcli", "-w", "20", "connection", "up", "id", ssid], f"Connecting to {ssid}…")
+        elif not net["sec"]:
+            self.run_and_refresh(["nmcli", "-w", "20", "dev", "wifi", "connect", ssid], f"Connecting to {ssid}…")
+        else:
+            self.want = ssid
+            self.keep_open = True       # typing a password: the menu must not close when focus moves
+            self.pw.set_text("")
+            self.pw_box.set_visible(True)
+            self.pw.grab_focus()
+            self.status.set_text(f"Password for {ssid}")
+
+    def send_password(self):
+        pw = self.pw.get_text()
+        ssid = getattr(self, "want", "")
+        if not ssid or not pw:
+            return
+        self.pw_box.set_visible(False)
+        self.keep_open = False
+        self.run_and_refresh(["nmcli", "-w", "25", "dev", "wifi", "connect", ssid, "password", pw], f"Connecting to {ssid}…", 35)
+
+
+class BluetoothWindow(ToolWindow, Dropdown):
+    """Bluetooth dropdown: switch Bluetooth on or off, connect or disconnect your paired devices."""
+
+    def __init__(self, app):
+        super().__init__(app, "Bluetooth", BT_W, BT_H, with_close=False)
+        self.busy = False
+        self.pending = None
+        head = Gtk.Box(spacing=8)
+        title = Gtk.Label(label="Bluetooth", xalign=0, hexpand=True)
+        title.add_css_class("power-big")
+        head.append(title)
+        self.switch = Gtk.Switch()
+        self.switch.set_valign(Gtk.Align.CENTER)
+        self.switch.connect("state-set", self.on_switch)
+        head.append(self.switch)
+        self.body.append(head)
+        self.status = Gtk.Label(xalign=0, wrap=True)
+        self.status.add_css_class("tools-sub")
+        self.body.append(self.status)
+
+        self.list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        sc = Gtk.ScrolledWindow(vexpand=True)
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.set_child(self.list)
+        self.body.append(sc)
+
+        more = Gtk.Button(label="Pair a new device…")
+        more.add_css_class("tools-item")
+        more.connect("clicked", lambda _b: (xlin_ui.run(["xlin", "settings", "bluetooth"]), self.close()))
+        self.body.append(more)
+
+        self.setup_dropdown()
+        self.refresh()
+        GLib.timeout_add_seconds(5, self.refresh)
+
+    def refresh(self):
+        if not self.get_visible():
+            return False
+        threading.Thread(target=self.read_state, daemon=True).start()
+        return True
+
+    def read_state(self):
+        _ok, show = cmd_out(["bluetoothctl", "show"], 4)
+        _ok, rf = cmd_out(["rfkill", "list", "bluetooth"], 3)
+        powered = "Powered: yes" in show and "Soft blocked: yes" not in rf
+        devices = []
+        if powered:
+            ok, out = cmd_out(["bluetoothctl", "devices", "Paired"], 4)
+            if not ok or not out:
+                ok, out = cmd_out(["bluetoothctl", "paired-devices"], 4)
+            for line in out.splitlines():
+                parts = line.split(" ", 2)
+                if len(parts) == 3 and parts[0] == "Device":
+                    _ok, info = cmd_out(["bluetoothctl", "info", parts[1]], 4)
+                    devices.append({"mac": parts[1], "name": parts[2], "on": "Connected: yes" in info})
+        GLib.idle_add(self.show, powered, devices, bool(show))
+
+    def show(self, powered, devices, have_adapter):
+        self.busy = True
+        self.switch.set_active(powered)
+        self.busy = False
+        while (c := self.list.get_first_child()) is not None:
+            self.list.remove(c)
+        if not have_adapter:
+            self.status.set_text("No Bluetooth adapter found")
+            return False
+        if not powered:
+            self.status.set_text("Bluetooth is off")
+            return False
+        devices.sort(key=lambda d: (not d["on"], d["name"].lower()))
+        if not self.pending:
+            on = [d["name"] for d in devices if d["on"]]
+            self.status.set_text(("Connected: " + ", ".join(on)) if on else
+                                 ("Not connected" if devices else "No paired devices yet"))
+        for d in devices:
+            row = menu_row(d["name"], "Connected · click to disconnect" if d["on"] else "Click to connect",
+                           "✓" if d["on"] else "")
+            if d["on"]:
+                row.add_css_class("tools-active")
+            row.connect("clicked", lambda _b, dev=d: self.pick(dev))
+            self.list.append(row)
+        return False
+
+    def on_switch(self, _s, state):
+        if self.busy:
+            return False
+
+        def work():
+            if state:
+                cmd_out(["rfkill", "unblock", "bluetooth"], 4)
+            cmd_out(["bluetoothctl", "power", "on" if state else "off"], 8)
+            GLib.idle_add(self.refresh)
+        threading.Thread(target=work, daemon=True).start()
+        self.status.set_text("Turning Bluetooth on…" if state else "Turning Bluetooth off…")
+        return False
+
+    def pick(self, dev):
+        self.pending = True
+        self.status.set_text(("Disconnecting from " if dev["on"] else "Connecting to ") + dev["name"] + "…")
+
+        def work():
+            ok, out = cmd_out(["bluetoothctl", "disconnect" if dev["on"] else "connect", dev["mac"]], 20)
+            GLib.idle_add(self.done, ok, dev)
+        threading.Thread(target=work, daemon=True).start()
+
+    def done(self, ok, dev):
+        self.pending = None
+        if not ok:
+            self.status.set_text(f"Could not reach {dev['name']}. Is it switched on and close by?")
+        threading.Thread(target=self.read_state, daemon=True).start()
+        return False
+
+
+# ---------------------------------------------------------------- the manual
+MANUAL_TEXT = [
+    ("h", "Welcome to Xlin-soft"),
+    ("p", "A calm, clean desktop for Hyprland on Arch Linux: light and dark themes, glass panels, smooth "
+          "animations and a complete set of its own apps."),
+    ("h", "The basics"),
+    ("p", "Super + Space opens the Launcher: search, pinned and recent apps, and every app.\n"
+          "Super + Return opens the Terminal, Super + E Files, Super + S Settings, Super + C the control panel.\n"
+          "Super + Q closes a window, Super + F makes it fullscreen. Press Super + / to see every shortcut."),
+    ("h", "Your desktop"),
+    ("p", "Top bar: this X button (the manual), the current app, and on the right Settings, Tools, Wi-Fi, "
+          "Bluetooth, sound, battery, clock, power and the control panel. Click Wi-Fi or Bluetooth for a quick menu.\n"
+          "Run Bar (bottom): your pinned and running apps and the Launcher button.\n"
+          "Desktop: right-click for widgets, wallpaper and icon size. Drag a window's edge to resize it; "
+          "double-click its title bar to fill the screen."),
+    ("h", "When something is wrong"),
+    ("p", "Open SysDeb (Settings → About) to check, read logs and repair. In a terminal: xlin doctor.\n"
+          "xlin restart restarts everything. To restart or reset one part: xlin runbar | bar | panel | desktop | "
+          "launcher restart (or reset)."),
+    ("h", "About"),
+    ("p", "Xlin-soft is made by Madhav Sharma with Team & Axion Co."),
+]
+
+
+class ManualWindow(ToolWindow):
+    """A small manual: an introduction to Xlin-soft and who made it."""
+
+    def __init__(self, app):
+        super().__init__(app, "Xlin-soft Manual", MANUAL_W, MANUAL_H, with_close=True, resizable=True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_end(10)
+        for kind, text in MANUAL_TEXT:
+            lab = Gtk.Label(label=text, xalign=0, wrap=True)
+            lab.set_selectable(kind == "p")
+            if kind == "h":
+                lab.add_css_class("power-big" if text.startswith("Welcome") else "tool-title")
+                lab.set_margin_top(10)
+            else:
+                lab.add_css_class("tools-sub")
+            box.append(lab)
+        ok, ver = cmd_out(["xlin", "version"], 3)
+        if ok:
+            v = Gtk.Label(label=ver, xalign=0)
+            v.add_css_class("tools-sub")
+            box.append(v)
+        sc = Gtk.ScrolledWindow(vexpand=True)
+        sc.set_child(box)
+        self.body.append(sc)
+        row = Gtk.Box(spacing=8, margin_top=6)
+        for label, cmd in (("Open Settings", ["xlin", "settings"]), ("All shortcuts", ["xlin", "keys", "menu"]),
+                           ("Welcome tour", ["xlin", "welcome"])):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, c=cmd: xlin_ui.run(c))
+            row.append(b)
+        self.body.append(row)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, k, _cd, _st: (self.close(), True)[1] if k == Gdk.KEY_Escape else False)
+        self.add_controller(keys)
+
+
 class SessionWindow(ToolWindow):
     """Narrow vertical dropdown: Lock Screen, Sleep, Log Out, Restart, Power Off.
     Log Out, Restart and Power Off ask for a second click so they cannot happen by accident."""
@@ -1270,8 +1682,8 @@ class FloatingTool(ToolWindow):
 
 class ToolsApp(Gtk.Application):
     def __init__(self, mode):
-        mode = mode if (mode in TOOLS or mode in ("power", "session")) else None
-        app_id = {"power": POWER_ID, "session": SESSION_ID}.get(mode) or (TOOLS[mode][1] if mode else MENU_ID)
+        mode = mode if (mode in TOOLS or mode in EXTRA_IDS) else None
+        app_id = EXTRA_IDS.get(mode) or (TOOLS[mode][1] if mode else MENU_ID)
         super().__init__(application_id=app_id, flags=Gio.ApplicationFlags.FLAGS_NONE)
         self.mode = mode
         self.win = None
@@ -1309,6 +1721,12 @@ class ToolsApp(Gtk.Application):
             self.win = PowerWindow(self)
         elif self.mode == "session":
             self.win = SessionWindow(self)
+        elif self.mode == "wifi":
+            self.win = WifiWindow(self)
+        elif self.mode == "bluetooth":
+            self.win = BluetoothWindow(self)
+        elif self.mode == "manual":
+            self.win = ManualWindow(self)
         else:
             self.win = FloatingTool(self, self.mode)
         self.win.present()
@@ -1320,7 +1738,7 @@ class ToolsApp(Gtk.Application):
 
 if __name__ == "__main__":
     mode = sys.argv[1].lower() if len(sys.argv) > 1 else None
-    if mode and mode not in TOOLS and mode not in ("power", "session"):
-        print("usage: xlin-tools [calculator|calendar|power|session]")
+    if mode and mode not in TOOLS and mode not in EXTRA_IDS:
+        print("usage: xlin-tools [calculator|calendar|power|session|wifi|bluetooth|manual]")
         sys.exit(2)
     sys.exit(ToolsApp(mode).run([sys.argv[0]]))

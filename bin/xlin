@@ -1133,6 +1133,19 @@ cmd_power() {
   setsid xlin-tools power >>"$HOME/.cache/xlin/tools.log" 2>&1 &
 }
 
+# Wi-Fi / Bluetooth dropdowns and the Xlin-soft Manual. Each one toggles like the battery menu.
+_tools_window() {   # _tools_window <mode> <name for the error message>
+  local mode="$1"
+  if pgrep -f "[x]lin-tools $mode\$" >/dev/null; then pkill -f "[x]lin-tools $mode\$"; return 0; fi
+  have xlin-tools && gi_ok || {
+    notify "$2 could not start" "Install: sudo pacman -S gtk4 python-gobject"; return 1; }
+  mkdir -p "$HOME/.cache/xlin"
+  setsid xlin-tools "$mode" >>"$HOME/.cache/xlin/tools.log" 2>&1 &
+}
+cmd_wifi()      { _tools_window wifi "The Wi-Fi menu"; }
+cmd_bluetooth() { _tools_window bluetooth "The Bluetooth menu"; }
+cmd_manual()    { _tools_window manual "The Xlin-soft Manual"; }
+
 # Power menu (Lock Screen, Sleep, Log Out, Power Off). Toggles like the Tools menu.
 cmd_session() {
   if pgrep -f '[x]lin-tools session$' >/dev/null; then pkill -f '[x]lin-tools session$'; return 0; fi
@@ -1251,7 +1264,7 @@ restart_all() {
 cmd_reset() {
   local f
   for f in theme accent dock_autohide dock_icon cursor_size terminal desktop_off bar_hidden idle_off idle_minutes \
-           nightlight ui_font ui_size warm_off no-banner recent; do
+           nightlight ui_font ui_size warm_off no-banner recent welcomed; do
     rm -f "$STATE/$f"
   done
   rm -f "$XLIN_HOME/desktop.json"
@@ -1263,6 +1276,8 @@ cmd_reset() {
   dock_restart >/dev/null 2>&1 || true
   pkill -SIGUSR2 waybar 2>/dev/null || true
   echo "Xlin-soft settings are back to the defaults"
+  # the Welcome tour shows again after a reset
+  ( sleep 2; cmd_welcome --first ) >/dev/null 2>&1 &
 }
 
 # Show the desktop (like Win+D): hides every window on this workspace; run it again to bring them back
@@ -2151,6 +2166,8 @@ ${B}xlin battery${R}
   xlin battery mode              show the power mode
   xlin battery mode saver|balanced|performance
   xlin power                     open the battery dropdown (GUI)
+  xlin wifi | bluetooth          quick Wi-Fi / Bluetooth dropdowns (connect, disconnect)
+  xlin manual                    the Xlin-soft Manual (introduction and basics)
 EOT
     ;;
     theme|look) cat <<EOT
@@ -2285,6 +2302,9 @@ case "${1:-help}" in
   settings)  shift; cmd_settings "${1:-}" ;;
   panel)     shift; case "${1:-}" in restart|reset) part_"$1" panel ;; *) cmd_panel ;; esac ;;
   power)     cmd_power ;;
+  wifi|network) cmd_wifi ;;
+  bluetooth|bt) cmd_bluetooth ;;
+  manual|help-me) cmd_manual ;;
   lock)      cmd_lock ;;
   session)   cmd_session ;;
   sleep|suspend) cmd_sleep ;;

@@ -31,6 +31,7 @@ source "$SRC/scripts/files.sh"
 xlin_install_files
 mkdir -p "$XLIN_HOME/wallpapers" "$XLIN_HOME/state"
 echo "$SRC" >"$XLIN_HOME/state/source"
+rm -f "$XLIN_HOME/state/welcomed"   # a fresh install shows the Welcome tour again
 
 source "$SRC/lib/config-backups.sh"
 
