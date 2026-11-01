@@ -157,6 +157,10 @@ class TermWindow(Gtk.ApplicationWindow):
         .term-plus:hover, .term-close:hover {{ opacity: 1; }}
         .term-close {{ background: transparent; border: none; box-shadow: none; min-height: 0; min-width: 0;
             padding: 0 4px; color: {fg}; opacity: .45; }}
+        .term-scroll {{ background: transparent; min-width: 10px; margin-left: 6px; }}
+        .term-scroll trough {{ background-color: alpha({fg}, .10); border-radius: 6px; min-width: 8px; }}
+        .term-scroll slider {{ background-color: alpha({fg}, .45); border-radius: 6px; min-width: 6px; min-height: 36px; margin: 1px; }}
+        .term-scroll slider:hover {{ background-color: alpha({fg}, .75); }}
         .term-search {{ background-color: {bg}; padding: 6px 12px; }}
         .term-search entry {{ min-height: 0; }}
         window.xlin-terminal notebook > header tab:checked {{ opacity: 1; background-color: {self.theme['selection_background']}; }}
@@ -219,6 +223,9 @@ class TermWindow(Gtk.ApplicationWindow):
         box = Gtk.Box()
         box.add_css_class("term-box")
         box.append(t)
+        bar = Gtk.Scrollbar(orientation=Gtk.Orientation.VERTICAL, adjustment=t.get_vadjustment())
+        bar.add_css_class("term-scroll")
+        box.append(bar)                       # the scroll bar on the right: drag it to go up and down the output
         label = Gtk.Label(label="Terminal")
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_max_width_chars(22)

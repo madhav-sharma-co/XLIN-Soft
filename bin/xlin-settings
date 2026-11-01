@@ -1214,8 +1214,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         self.side = Gtk.ListBox()
         self.side.add_css_class("xlin-side")
-        self.side.set_size_request(xlin_ui.scaled(210), -1)
-        root.append(self.side)
+        side_scroll = Gtk.ScrolledWindow(vexpand=True)
+        side_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        side_scroll.set_size_request(xlin_ui.scaled(210), -1)
+        side_scroll.set_child(self.side)
+        root.append(side_scroll)
         root.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
         self.stack = Gtk.Stack(hexpand=True, vexpand=True)

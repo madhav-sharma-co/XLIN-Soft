@@ -22,4 +22,8 @@ fi
 chk "update.sh asks first"      "$(grep -c 'xlin_update_mode' update.sh)" 1
 chk "xlin update passes the flags on" "$(grep -c 'update.sh \"\$@\"' bin/xlin)" 1
 chk "scroll bar css"            "$(grep -c '^scrollbar slider {' templates/tools.css.tpl)" 1
+chk "terminal has a scroll bar"       "$(grep -c 'Gtk.Scrollbar' bin/xlin-terminal)" 1
+chk "control panel scroll bar css"    "$(grep -c '^scrollbar slider {' templates/swaync.css.tpl)" 1
+chk "settings sidebar scrolls"        "$(grep -c 'side_scroll.set_child(self.side)' bin/xlin-settings)" 1
+chk "files sidebar scrolls"           "$(grep -c 'side_scroll.set_child(side_box)' bin/xlin-files)" 1
 exit $fail

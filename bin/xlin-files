@@ -541,7 +541,10 @@ class FilesWindow(Gtk.ApplicationWindow):
         net.set_tooltip_text("Open a network folder, e.g. smb://server/share or sftp://user@host/")
         net.connect("clicked", lambda _b: self.connect_server())
         side_box.append(net)
-        outer.append(side_box)
+        side_scroll = Gtk.ScrolledWindow(vexpand=True)
+        side_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        side_scroll.set_child(side_box)
+        outer.append(side_scroll)
 
         # ---- main column
         main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)

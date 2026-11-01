@@ -105,3 +105,9 @@ scale trough slider {
 .summary { font-weight: 700; color: @C_INK@; }
 .body, .time { color: @C_MUTED@; }
 .floating-notifications.background .notification { box-shadow: 0 12px 35px rgba(30, 43, 67, 0.2); }
+
+/* the scroll bar on the right of the notification list: slim, same look as in the Xlin-soft apps */
+scrollbar { background: transparent; }
+scrollbar trough { background-color: @C_SOFT@; border-radius: 6px; min-width: 8px; }
+scrollbar slider { background-color: @C_MUTED@; border-radius: 6px; min-width: 6px; min-height: 36px; margin: 1px; border: none; }
+scrollbar slider:hover { background-color: @C_ACCENT@; }
