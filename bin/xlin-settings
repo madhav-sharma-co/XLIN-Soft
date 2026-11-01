@@ -395,7 +395,7 @@ def display_rows(c):
             pct = int(m.group(1))
     if have("brightnessctl") and ok:
         c.append(row("Brightness", None,
-                     slider(pct, lambda v: run(["brightnessctl", "set", f"{max(1, int(v))}%"]), 1, 100)))
+                     slider(max(1, pct), lambda v: run(["xlin", "brightness", "set", str(max(1, int(v)))]), 1, 100)))
     else:
         c.append(row("Brightness", "No adjustable backlight found (normal on desktop PCs)"))
     if have("nwg-displays"):

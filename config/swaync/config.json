@@ -20,9 +20,9 @@
     "menubar#top",
     "title",
     "buttons-grid",
+    "buttons-grid#sound",
     "volume",
     "backlight",
-    "buttons-grid#power",
     "notifications"
   ],
   "widget-config": {
@@ -101,7 +101,20 @@
       "label": ""
     },
     "backlight": {
-      "label": ""
+      "label": "",
+      "min": 1
+    },
+    "buttons-grid#sound": {
+      "buttons-per-row": 1,
+      "actions": [
+        {
+          "label": "  Mute sound",
+          "command": "xlin sound toggle",
+          "type": "toggle",
+          "active": false,
+          "update-command": "xlin state muted"
+        }
+      ]
     }
   }
 }

@@ -29,6 +29,8 @@ jobs:
         run: bash tests/test-update-mode.sh
       - name: Scrolling
         run: bash tests/test-scroll.sh
+      - name: Brightness floor and mute
+        run: bash tests/test-brightness.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

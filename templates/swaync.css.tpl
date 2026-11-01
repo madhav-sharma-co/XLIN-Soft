@@ -6,19 +6,22 @@
 .control-center {
   background: @C_PANEL@;
   border: 1px solid @C_LINE_SOLID@;
-  border-radius: 11px;
-  padding: 15px;
+  border-radius: 16px;
+  padding: 16px;
   color: @C_INK@;
+  box-shadow: 0 18px 50px rgba(20, 28, 48, 0.28);
 }
 
 .control-center .widget-title {
-  margin: 0 0 12px 0;
-  font-size: 14px;
+  margin: 2px 2px 14px 2px;
+  font-size: 17px;
   font-weight: 700;
+  letter-spacing: 0.2px;
 }
 .control-center .widget-title > button {
-  padding: 4px 12px;
-  border-radius: 8px;
+  padding: 5px 14px;
+  border-radius: 10px;
+  font-size: 12px;
   background: @C_SOFT@;
   color: @C_INK@;
   border: none;
@@ -38,15 +41,17 @@
   margin-bottom: 12px;
 }
 .widget-buttons-grid > flowbox > flowboxchild > button {
-  min-height: 38px;
-  margin: 3px;
-  padding: 0 10px;
-  border-radius: 8px;
+  min-height: 46px;
+  margin: 4px;
+  padding: 0 14px;
+  border-radius: 14px;
   background: @C_SOFT@;
   color: @C_INK@;
   border: none;
   box-shadow: none;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 120ms ease-out, color 120ms ease-out;
 }
 .widget-buttons-grid > flowbox > flowboxchild > button:hover {
   background: alpha(@C_ACCENT@, 0.22);
@@ -64,40 +69,42 @@
   opacity: 0.9;
 }
 
-/* thin, flat sliders: a 3px line with a tiny dot, no big pill */
+/* the volume and brightness sliders: each one on its own soft card, with a round handle */
 .widget-volume, .widget-backlight {
-  background: transparent;
-  padding: 2px 4px;
-  margin: 0;
-  color: @C_MUTED@;
-}
-.widget-volume scale, .widget-backlight scale { padding: 0; margin: 0; min-height: 0; }
-scale trough {
   background: @C_SOFT@;
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin: 4px;
+  color: @C_INK@;
+  font-size: 15px;
+}
+.widget-volume scale, .widget-backlight scale { padding: 0; margin: 0 0 0 10px; min-height: 0; }
+scale trough {
+  background: alpha(@C_MUTED@, 0.28);
   border: none;
-  border-radius: 3px;
-  min-height: 3px;
+  border-radius: 4px;
+  min-height: 6px;
   min-width: 0;
   padding: 0;
   margin: 0;
 }
-scale trough highlight { background: @C_ACCENT@; border-radius: 3px; min-height: 3px; }
+scale trough highlight { background: @C_ACCENT@; border-radius: 4px; min-height: 6px; }
 scale trough slider {
   background: @C_ACCENT@;
-  border: none;
+  border: 3px solid @C_PANEL@;
   border-radius: 50%;
-  box-shadow: none;
-  min-width: 10px;
-  min-height: 10px;
-  margin: -4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  min-width: 12px;
+  min-height: 12px;
+  margin: -7px;
 }
 
 .notification-row { outline: none; }
 .notification {
-  background: @C_PANEL@;
-  border: 1px solid @C_LINE_SOLID@;
-  border-radius: 10px;
-  margin: 6px 12px;
+  background: @C_SOFT@;
+  border: none;
+  border-radius: 14px;
+  margin: 6px 4px;
   padding: 0;
   color: @C_INK@;
 }

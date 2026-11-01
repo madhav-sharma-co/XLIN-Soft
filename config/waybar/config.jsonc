@@ -58,8 +58,10 @@
     "format": "{icon}",
     "format-muted": "",
     "format-icons": { "default": ["", "", ""] },
-    "tooltip-format": "Volume {volume}%",
-    "on-click": "pavucontrol",
+    "tooltip-format": "Volume {volume}% (click to mute)",
+    "on-click": "xlin sound toggle",
+    "on-click-right": "pavucontrol",
+    "tooltip-format-muted": "Muted (click to unmute)",
     "on-scroll-up": "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 3%+",
     "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 3%-"
   },
