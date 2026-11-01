@@ -24,6 +24,13 @@ echo "[${LD_PRELOAD:-}]" >"$HOME/pre"
 sleep 30
 EOS
 chmod +x "$HOME/bin/waybar"; export PATH="$HOME/bin:$PATH"
+# the layer-shell preload is dropped by xlin itself (the Run Bar died after pinning)
+rm -f "$HOME/pre"
+if pgrep -x waybar >/dev/null; then echo "skip: a waybar (or its zombie) from an earlier run exists"; else
+env LD_PRELOAD=/nonexistent/libgtk4-layer-shell.so.1 XLIN_START_REEXEC=1 bash "$ROOT/bin/xlin" statusbar on >/dev/null 2>&1; sleep 0.4
+chk "xlin drops the preload (children never get it)" "[[ \$(cat $HOME/pre 2>/dev/null) == '[]' ]]"
+fi
+pkill -x waybar 2>/dev/null
 $X statusbar off >/dev/null
 chk "off: state file"            "[[ -f $XLIN_HOME/state/statusbar_off ]]"
 chk "off: reported"              "$X statusbar | grep -q 'off'"
@@ -38,11 +45,6 @@ pkill -x waybar 2>/dev/null
 chk "Desktop settings has the switch" "grep -q 'Show status bar' bin/xlin-settings"
 chk "bad value refused"          "! $X statusbar sideways >/dev/null 2>&1"
 
-# the layer-shell preload is dropped by xlin itself (the Run Bar died after pinning)
-pkill -x waybar 2>/dev/null; sleep 0.4; rm -f "$HOME/pre"
-env LD_PRELOAD=/nonexistent/libgtk4-layer-shell.so.1 XLIN_START_REEXEC=1 bash "$ROOT/bin/xlin" statusbar on >/dev/null 2>&1; sleep 0.4
-chk "xlin drops the preload (children never get it)" "[[ \$(cat $HOME/pre 2>/dev/null) == '[]' ]]"
-pkill -x waybar 2>/dev/null
 chk "pin checks the Run Bar is back" "sed -n '/^cmd_pin()/,/^}/p' bin/xlin | grep -q dock_verify"
 
 # volume menu

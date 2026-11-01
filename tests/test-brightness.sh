@@ -43,7 +43,7 @@ chk "normal values are untouched"      "[[ \$(cat $HOME/bright) -eq 127 ]]"
 
 chk "panel slider minimum is 1"        "python3 -c \"import json;assert json.load(open('config/swaync/config.json'))['widget-config']['backlight']['min']==1\""
 chk "panel has a mute button"          "python3 -c \"import json;d=json.load(open('config/swaync/config.json'));assert 'buttons-grid#sound' in d['widgets'];assert d['widgets'].index('buttons-grid#sound')<d['widgets'].index('volume')\""
-chk "bar volume click mutes"           "grep -A8 '\"pulseaudio\"' config/waybar/config.jsonc | grep -q '\"on-click\": \"xlin sound toggle\"'"
+chk "bar volume middle-click mutes"    "grep -A9 '\"pulseaudio\"' config/waybar/config.jsonc | grep -q '\"on-click-middle\": \"xlin sound toggle\"'"
 chk "Settings slider goes through xlin" "grep -q '\"xlin\", \"brightness\", \"set\"' bin/xlin-settings"
 
 # muted state
