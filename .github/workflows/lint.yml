@@ -23,6 +23,8 @@ jobs:
         run: bash tests/test-pins.sh
       - name: Desktop folders and widget transparency
         run: python3 tests/test-desktop-folders.py
+      - name: Default apps and settings pages
+        run: bash tests/test-defaults.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

@@ -36,6 +36,7 @@ PAGES = [
     ("desktop", "Desktop", "preferences-desktop-wallpaper-symbolic"),
     ("bars", "Status Bar and Run Bar", "view-list-symbolic"),
     ("launcher", "Launcher and App Drawer", "view-app-grid-symbolic"),
+    ("apps", "Apps and Tools", "applications-other-symbolic"),
     ("personalization", "Personalization", "preferences-desktop-theme-symbolic"),
     ("about", "About", "help-about-symbolic"),
 ]
@@ -647,12 +648,52 @@ def airplane_on():
     return ok and "Soft blocked: no" not in out and "Soft blocked: yes" in out
 
 
+POWER_MODES = [("power-saver", "Power saver", "Longer battery life"),
+               ("balanced", "Balanced", "Good for everyday use"),
+               ("performance", "Performance", "Fastest, uses more power")]
+
+
+def battery_rows(box):
+    """General -> Battery: charge level and the power mode (power saver / balanced / performance)."""
+    c = card()
+    box.append(c)
+    level = None
+    for d in sorted(glob_batteries()):
+        try:
+            with open(os.path.join(d, "capacity")) as f:
+                pct = int(f.read().strip())
+            with open(os.path.join(d, "status")) as f:
+                state = f.read().strip()
+            level = f"{pct}%  ·  " + {"Charging": "charging", "Full": "fully charged"}.get(state, "on battery")
+            break
+        except (OSError, ValueError):
+            continue
+    c.append(row("Battery", level or "No battery: this computer runs on mains power"))
+    ok, out = run(["powerprofilesctl", "list"], 4)
+    modes = [m for m in POWER_MODES if ok and m[0] + ":" in out]
+    if not modes:
+        c.append(row("Power mode", "Needs power-profiles-daemon:  sudo pacman -S power-profiles-daemon  and  "
+                                   "sudo systemctl enable --now power-profiles-daemon"))
+        return
+    cur = run(["powerprofilesctl", "get"], 4)[1] or "balanced"
+    c.append(row("Power mode", "Power saver: longer battery life. Balanced: everyday use. Performance: fastest",
+                 segmented([(k, n) for k, n, _t in modes], cur,
+                           lambda v: in_thread(lambda: run(["xlin", "battery", "mode", v], 8)))))
+
+
+def glob_batteries():
+    import glob
+    return glob.glob("/sys/class/power_supply/BAT*")
+
+
 def general_page(win):
-    box = page_box("General", "Sound, brightness, notifications and sleep")
+    box = page_box("General", "Sound, brightness, battery, notifications and sleep")
     c = card()
     box.append(c)
     sound_rows(c)
     display_rows(c)
+
+    battery_rows(box)
 
     cn = card()
     box.append(cn)
@@ -676,9 +717,6 @@ def general_page(win):
     c2.append(row("Keep apps ready", "Settings, Files, Store and the Launcher wait out of sight so they open instantly", switch(
         not os.path.exists(os.path.join(STATE, "warm_off")),
         lambda s: in_thread(lambda: run(["xlin", "warm", "on" if s else "off"], 20)))))
-    c2.append(row("Terminal", "What Super+Return opens", segmented(
-        [("xlin", "Xlin-soft Terminal"), ("kitty", "Kitty")], read_state("terminal", "xlin"),
-        lambda v: in_thread(lambda: run(["xlin", "terminal", "use", v])))))
     return box
 
 
@@ -916,6 +954,83 @@ class WallpaperCard(Gtk.Box):
         dlg.open_multiple(self.win, None, done)
 
 
+# Default apps: kind -> (label, a mime type the apps are asked about)
+DEFAULT_KINDS = [("browser", "Web browser", "x-scheme-handler/https"),
+                 ("files", "Files and folders", "inode/directory"),
+                 ("music", "Music player", "audio/mpeg"),
+                 ("video", "Video player", "video/mp4"),
+                 ("images", "Image viewer", "image/png"),
+                 ("text", "Text editor", "text/plain"),
+                 ("pdf", "PDF and documents", "application/pdf"),
+                 ("mail", "Email", "x-scheme-handler/mailto")]
+TERMINALS = [("xlin", "Xlin-soft Terminal"), ("kitty", "Kitty"), ("foot", "Foot"), ("alacritty", "Alacritty"),
+             ("wezterm", "WezTerm"), ("gnome-terminal", "GNOME Terminal"), ("konsole", "Konsole"), ("xterm", "XTerm")]
+XLIN_TOOLS = [("dev.xlin.Files", "Files"), ("dev.xlin.Media", "Media"), ("dev.xlin.Store", "Store"),
+              ("dev.xlin.Terminal", "Terminal"), ("dev.xlin.Notes", "Notes"), ("dev.xlin.Calculator", "Calculator"),
+              ("dev.xlin.Calendar", "Calendar"), ("dev.xlin.Clock", "Clock"), ("dev.xlin.Screenshot", "Screenshot"),
+              ("dev.xlin.Monitor", "SysMon"), ("dev.xlin.Debug", "SysDeb")]
+
+
+def default_choices(mime):
+    """Installed apps that can open this kind of thing: Xlin-soft's own first, then the others by name."""
+    seen, out = set(), []
+    for a in Gio.AppInfo.get_all_for_type(mime):
+        aid = a.get_id() or ""
+        if aid and aid not in seen and a.should_show():
+            seen.add(aid)
+            out.append((aid, a.get_display_name()))
+    out.sort(key=lambda t: (not t[0].startswith("dev.xlin."), t[1].lower()))
+    return out
+
+
+def apps_page(win):
+    box = page_box("Apps and Tools", "Choose which app opens what. Xlin-soft's own apps are the defaults")
+    c = card()
+    box.append(c)
+
+    def dropdown(choices, current, on_pick):
+        names = [n + ("  (Xlin-soft)" if i.startswith("dev.xlin.") or i == "xlin" else "") for i, n in choices]
+        dd = Gtk.DropDown.new_from_strings(names or ["No app installed"])
+        dd.set_sensitive(bool(choices))
+        for idx, (i, _n) in enumerate(choices):
+            if i == current:
+                dd.set_selected(idx)
+        state = {"ready": False}
+
+        def changed(d, _p):
+            if state["ready"] and choices:
+                on_pick(choices[d.get_selected()][0])
+        dd.connect("notify::selected", changed)
+        state["ready"] = True
+        return dd
+
+    cur_terminal = read_state("terminal", "xlin")
+    terms = [(k, n) for k, n in TERMINALS if k == "xlin" or have(k)]
+    c.append(row("Terminal", "What Super+Return opens", dropdown(
+        terms, cur_terminal, lambda v: in_thread(lambda: run(["xlin", "terminal", "use", v], 10)))))
+    for kind, label, mime in DEFAULT_KINDS:
+        choices = default_choices(mime)
+        cur = Gio.AppInfo.get_default_for_type(mime, False)
+        cur_id = (cur.get_id() or "") if cur else ""
+        sub = None if choices else "No installed app handles this yet. Install one from the Store"
+        c.append(row(label, sub, dropdown(
+            choices, cur_id, lambda v, k=kind: in_thread(lambda: run(["xlin", "defaults", "set", k, v], 10)))))
+    c.append(row("Back to Xlin-soft apps", "Files, Media and Terminal become the defaults again", button(
+        "Reset", lambda: in_thread(lambda: run(["xlin", "defaults", "reset"], 20), lambda _r: win.rebuild("apps")))))
+
+    ct = card()
+    box.append(ct)
+    head = Gtk.Label(label="Xlin-soft apps and tools", xalign=0, margin_top=10)
+    head.add_css_class("xlin-sub")
+    ct.append(head)
+    for aid, name in XLIN_TOOLS:
+        app = Gio.DesktopAppInfo.new(aid + ".desktop")
+        if app is None:
+            continue
+        ct.append(row(name, app.get_description(), button("Open", lambda a=app: (a.launch([], None), None)[1])))
+    return box
+
+
 def launcher_page(win):
     box = page_box("Launcher and App Drawer", "Right-click an app in the Launcher to pin it to the Launcher or the Run Bar")
     c = card()
@@ -1124,6 +1239,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "desktop": lambda: desktop_page(self),
             "bars": lambda: bars_page(self),
             "launcher": lambda: launcher_page(self),
+            "apps": lambda: apps_page(self),
             "personalization": lambda: appearance_page(self),
             "about": lambda: about_page(self),
         }

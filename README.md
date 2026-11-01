@@ -53,6 +53,7 @@ you have `paru` or `yay`).
 | Run Bar         | The bottom bar with pinned and running apps and the Launcher button. It is always there, even with nothing open. Starts with six Xlin-soft apps pinned (the Launcher has twelve, the desktop two); `xlin pins reset` brings the defaults back |
 | Control panel   | Wi-Fi, Bluetooth, airplane mode, dark mode, night light and do not disturb (switched-on buttons are filled with the accent colour), volume, brightness, power mode and notifications (Super+C) |
 | Desktop folders | Drag an app onto another to make a folder (one click opens it), add real files and folders from the right-click menu, drop a file onto a folder to move it in. Files and folders can also be pinned to the Run Bar and Launcher. Widget transparency is in Settings → Desktop |
+| Apps and Tools  | Settings tab to choose default apps (terminal, browser, files, music, video, images, text, PDF, email); Xlin-soft Files, Media and Terminal are the defaults |
 | Wallpapers      | Six gradients (Light, Dark, Dark Blue, Light Blue, Dark Green, Light Pink). Add your own or remove them in **Settings → Desktop → Wallpapers**, or with `xlin wallpapers` |
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
 | Settings        | General, Connectivity, Desktop, Status Bar and Run Bar, Launcher, Personalization (theme, accent, fonts, text size, animations, opacity, wallpaper, cursor), About (update, reset) |

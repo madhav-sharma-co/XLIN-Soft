@@ -1083,10 +1083,14 @@ EOF
 # `xlin term [-d folder] [-e command]`: open a terminal window (Xlin-soft Terminal, or kitty as the fallback)
 cmd_term() {
   mkdir -p "$HOME/.cache/xlin"
-  local choice
+  local choice cmd=() args=("$@")
   choice="$(cat "$STATE/terminal" 2>/dev/null || echo xlin)"
-  if [[ "$choice" == xlin ]] && have xlin-terminal \
-     && vte_ok; then
+  if [[ "$choice" != xlin ]] && have "$choice"; then
+    # a terminal chosen in Settings -> Apps and Tools: pass on only "-e command ..." (they all know it)
+    while ((${#args[@]})) && [[ "${args[0]}" != -e ]]; do args=("${args[@]:1}"); done
+    [[ "$choice" == gnome-terminal && "${args[0]:-}" == -e ]] && args[0]=--
+    setsid "$choice" "${args[@]}" >>"$HOME/.cache/xlin/terminal.log" 2>&1 &
+  elif have xlin-terminal && vte_ok; then
     setsid xlin-terminal "$@" >>"$HOME/.cache/xlin/terminal.log" 2>&1 &
   elif have kitty; then
     [[ "${1:-}" == -e ]] && shift
@@ -1099,10 +1103,12 @@ cmd_term() {
 
 cmd_terminal() {
   case "${1:-}" in
-    use)
+    use)    # Settings -> Apps and Tools; the default is always Xlin-soft Terminal
       case "${2:-}" in
-        xlin|kitty) echo "$2" >"$STATE/terminal"; echo "terminal: $2 (Super+Return opens it)" ;;
-        *) echo "usage: xlin terminal use xlin|kitty   (now: $(cat "$STATE/terminal" 2>/dev/null || echo xlin))" ;;
+        xlin) rm -f "$STATE/terminal"; echo "terminal: Xlin-soft Terminal (Super+Return opens it)" ;;
+        "") echo "usage: xlin terminal use xlin|<terminal program>   (now: $(cat "$STATE/terminal" 2>/dev/null || echo xlin))" ;;
+        *) have "$2" || { echo "$2 is not installed"; return 1; }
+           echo "$2" >"$STATE/terminal"; echo "terminal: $2 (Super+Return opens it)" ;;
       esac
       return ;;
     font) write_font "${2:-}" "${3:-}"; return ;;
@@ -1327,6 +1333,7 @@ cmd_reset() {
   done
   rm -f "$XLIN_HOME/desktop.json"
   pins_runbar_default; pins_launcher_default
+  cmd_defaults reset >/dev/null 2>&1 || true
   cmd_theme light >/dev/null 2>&1 || true
   bar_apply 2>/dev/null || true
   apply_cursor 2>/dev/null || true
@@ -1791,6 +1798,50 @@ cmd_store() {
   echo "Xlin-soft Store needs python-gobject (sudo pacman -S python-gobject)"; return 1
 }
 
+# ---- default apps: xlin defaults [list | set <kind> <desktop-id|command> | reset]
+# Kinds: browser files music video images text pdf mail terminal. Xlin-soft's own apps are the defaults where
+# Xlin-soft has one (Files, Media, Terminal); Settings -> Apps and Tools changes any of them.
+defaults_mimes() {
+  case "$1" in
+    browser)  echo "x-scheme-handler/http x-scheme-handler/https text/html" ;;
+    files)    echo "inode/directory" ;;
+    music)    echo "audio/mpeg audio/flac audio/ogg audio/x-wav audio/mp4" ;;
+    video)    echo "video/mp4 video/x-matroska video/webm" ;;
+    images)   echo "image/png image/jpeg image/webp image/gif" ;;
+    text)     echo "text/plain" ;;
+    pdf)      echo "application/pdf" ;;
+    mail)     echo "x-scheme-handler/mailto" ;;
+    *) return 1 ;;
+  esac
+}
+cmd_defaults() {
+  local sub="${1:-list}" kind="${2:-}" id="${3:-}" m mime
+  case "$sub" in
+    list)
+      for kind in browser files music video images text pdf mail; do
+        m="$(defaults_mimes "$kind")"
+        printf '%-8s %s\n' "$kind" "$(xdg-mime query default "${m%% *}" 2>/dev/null)"
+      done
+      printf '%-8s %s\n' terminal "$(cat "$STATE/terminal" 2>/dev/null || echo xlin)" ;;
+    set)
+      [[ "$kind" == terminal ]] && { cmd_terminal use "$id"; return; }
+      have xdg-mime || { echo "xdg-mime not found (sudo pacman -S xdg-utils)"; return 1; }
+      m="$(defaults_mimes "$kind")" || { echo "usage: xlin defaults set browser|files|music|video|images|text|pdf|mail|terminal <app>"; return 1; }
+      [[ -n "$id" ]] || { echo "which app? (a .desktop file name)"; return 1; }
+      id="${id%.desktop}.desktop"
+      for mime in $m; do xdg-mime default "$id" "$mime"; done
+      echo "$kind: $id" ;;
+    reset)   # Xlin-soft's own apps wherever there is one; the rest is left as it is
+      rm -f "$STATE/terminal"
+      if have xdg-mime; then
+        xdg-mime default dev.xlin.Files.desktop inode/directory
+        for mime in $(defaults_mimes music) $(defaults_mimes video); do xdg-mime default dev.xlin.Media.desktop "$mime"; done
+      fi
+      echo "default apps: Xlin-soft Files, Media and Terminal" ;;
+    *) echo "usage: xlin defaults [list | set <kind> <app> | reset]"; return 1 ;;
+  esac
+}
+
 # ---- files: the Xlin-soft file manager, or another one if Xlin-soft Files cannot start
 cmd_files() {
   if [[ "${1:-}" == default ]]; then   # make Xlin-soft Files the app other programs use for "show in folder"
@@ -2241,7 +2292,7 @@ ${B}Look and feel${R}
   xlin desktop [on|off|restart|reset]   right-click desktop menu, shortcuts and widgets
   xlin restart                     restart everything (bars, panel, Run Bar, desktop, apps)
   xlin <part> restart | reset      one part only. Parts: runbar  bar  panel  desktop  launcher
-  xlin terminal use xlin|kitty     which terminal Super+Return opens
+  xlin defaults [list|set|reset]   default apps (Settings -> Apps and Tools); Xlin-soft apps by default
   xlin terminal font ["Name" 12]   terminal font
   xlin terminal banner on|off      terminal welcome card
 EOT
@@ -2333,6 +2384,7 @@ case "${1:-help}" in
   pin)       shift; cmd_pin "${1:-}" ;;
   unpin)     shift; cmd_unpin "${1:-}" ;;
   pinpath)   shift; cmd_pinpath "$@" ;;
+  defaults)  shift; cmd_defaults "$@" ;;
   dock|runbar) shift; case "${1:-check}" in
                check) dock_check ;;
                restart|reset) part_"$1" runbar ;;
