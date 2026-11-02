@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Xlin-soft Manual
-GenericName=Manual
+Name=Xman
+GenericName=Xlin-soft Manual
 Comment=A guide to Xlin-soft: basics, apps, shortcuts and repairs
 Exec=xlin manual
 Icon=xlin-manual

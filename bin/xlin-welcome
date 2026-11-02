@@ -442,7 +442,7 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         more.connect("clicked", lambda _b: xlin_ui.run(["xlin", "settings"]))
         b.append(more)
         tip = Gtk.Label(label="Something wrong later? Open SysDeb and press Fix everything. "
-                              "The X button on the top bar opens the Xlin-soft Manual.", xalign=0, wrap=True, margin_top=10)
+                              "The X button on the top bar opens Xman, the Xlin-soft Manual.", xalign=0, wrap=True, margin_top=10)
         tip.add_css_class("welcome-sub")
         b.append(tip)
         return b

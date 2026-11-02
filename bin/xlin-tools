@@ -1754,17 +1754,17 @@ class ManualWindow(ToolWindow):
     """The manual: tabs for Start, Desktop, Apps, Shortcuts, Help and About."""
 
     def __init__(self, app):
-        super().__init__(app, "Xlin-soft Manual", MANUAL_W, MANUAL_H, with_close=True, resizable=True)
+        super().__init__(app, "Xman", MANUAL_W, MANUAL_H, with_close=True, resizable=True)
         head = Gtk.Box(spacing=12)
         icon = Gtk.Image.new_from_icon_name("xlin-manual")
         icon.set_pixel_size(44)
         head.append(icon)
         titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
-        t = Gtk.Label(label="Xlin-soft Manual", xalign=0)
+        t = Gtk.Label(label="Xman", xalign=0)
         t.add_css_class("power-big")
         titles.append(t)
         ok, ver = cmd_out(["xlin", "version"], 3)
-        v = Gtk.Label(label=ver if ok else "", xalign=0)
+        v = Gtk.Label(label="Xlin-soft Manual" + ((" · " + ver) if ok else ""), xalign=0)
         v.add_css_class("tools-sub")
         titles.append(v)
         head.append(titles)

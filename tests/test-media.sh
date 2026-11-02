@@ -18,6 +18,7 @@ import re
 s = open('bin/xlin-tools').read()
 names = re.findall(r'^    \\(\"(\\w+)\", (?:\\[|None)', s[s.index('MANUAL_TABS'):], re.M)
 assert names[:6] == ['Start', 'Desktop', 'Apps', 'Shortcuts', 'Help', 'About'], names
+assert 'Xman' in s
 assert 'Madhav Sharma with Team & Axion Co.' in s
 PY"
 chk "Welcome has more pages"         "python3 - <<'PY'
