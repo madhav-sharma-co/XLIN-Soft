@@ -35,6 +35,34 @@ def sh(cmd, timeout=30):
         return f"({cmd[0]} could not run: {e})"
 
 
+def have(prog):
+    from shutil import which
+    return which(prog) is not None
+
+
+def run_in_terminal(cmd):
+    """Run a shell command in a terminal window (repairs ask for the password there). Returns an error text or None."""
+    wrapped = cmd + "; echo; read -rp 'Press Enter to close.'"
+    if have("xlin-terminal"):
+        args = ["xlin-terminal", "-e", "bash", "-c", wrapped]
+    else:
+        term = next((t for t in ("kitty", "foot", "alacritty", "gnome-terminal", "konsole", "xterm") if have(t)), None)
+        if term is None:
+            return f"Open a terminal and run: {cmd}"
+        args = [term, "--", "bash", "-c", wrapped] if term == "gnome-terminal" else [term, "-e", "bash", "-c", wrapped]
+    try:
+        subprocess.Popen(args, start_new_session=True)
+    except OSError:
+        return f"Open a terminal and run: {cmd}"
+    return None
+
+
+def problems(text):
+    """The lines of the health check that need a repair."""
+    return [ln.strip() for ln in text.splitlines()
+            if re.search(r"MISSING|NOT RUNNING|not active|missing ", ln)]
+
+
 def tail(text, n):
     return "\n".join(text.splitlines()[-n:])
 
@@ -90,6 +118,11 @@ class DebugWindow(Gtk.ApplicationWindow):
             b = Gtk.Button(label=label)
             b.connect("clicked", lambda _b, f=fn: f())
             bar.append(b)
+        fixb = Gtk.Button(label="Fix everything")
+        fixb.add_css_class("suggested-action")
+        fixb.set_tooltip_text("Reinstall Xlin-soft, install every missing package, restart services and bars, and check again")
+        fixb.connect("clicked", lambda _b: self.fix_all(False))
+        bar.append(fixb)
         bar.append(Gtk.Box(hexpand=True))
         for label, cmd in (("Restart Xlin-soft", ["xlin", "restart"]), ("Fix shortcuts", ["xlin", "keys", "fix"]),
                            ("Restart desktop", ["xlin", "desktop", "restart"])):
@@ -143,8 +176,17 @@ class DebugWindow(Gtk.ApplicationWindow):
 
     def checks(self):
         self.picker.set_visible(False)
-        self.background(lambda: sh(["xlin", "doctor"], 60).strip() or "No output from xlin doctor.",
-                        "Running checks...")
+        def work():
+            out = sh(["xlin", "doctor"], 60).strip() or "No output from xlin doctor."
+            found = problems(out)
+            if found:
+                head = (f"{len(found)} problem{'s' if len(found) != 1 else ''} found. "
+                        "Press \"Fix everything\" to repair them.\n" + "\n".join("  - " + p for p in found) + "\n\n")
+                out = head + out
+            else:
+                out = "No problems found.\n\n" + out
+            return out
+        self.background(work, "Running checks...")
 
     def show_logs(self, reset=True):
         self.picker.set_visible(True)
@@ -156,6 +198,11 @@ class DebugWindow(Gtk.ApplicationWindow):
     def show_report(self):
         self.picker.set_visible(False)
         self.background(report, "Collecting a report...")
+
+    def fix_all(self, full):
+        """Repair the whole desktop in a terminal window: packages, files, services, bars, shortcuts, then re-check."""
+        err = run_in_terminal("xlin fix" + (" --full" if full else ""))
+        self.status.set_text(err or "Repairing in a terminal window. Press Run checks when it is done.")
 
     def fix(self, name, cmd):
         self.status.set_text(f"{name}...")

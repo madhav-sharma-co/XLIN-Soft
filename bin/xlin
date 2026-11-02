@@ -1110,6 +1110,77 @@ cmd_doctor() {
   return $missing
 }
 
+# xlin fix [--full]: repair everything that can be broken. Reinstalls Xlin-soft's own files, installs every missing
+# package, restarts services and bars, puts the shortcuts and settings files back, then runs the health check again.
+# --full also updates the whole system (pacman -Syu); without it only what is missing is installed.
+cmd_fix() {
+  local mode=--xlin-only a src step=0
+  for a in "$@"; do case "$a" in --full|-y) mode=--full ;; esac; done
+  fixsay() { step=$((step + 1)); printf '\n\033[1;34m[%s]\033[0m %s\n' "$step" "$*"; }
+  [[ $EUID -ne 0 || -n "${XLIN_TEST:-}" ]] || { echo "Run as your normal user, not root."; return 1; }
+  src="$(head -n1 "$STATE/source" 2>/dev/null || true)"
+
+  fixsay "Clearing leftovers of earlier crashes"
+  local f pid
+  for f in "$STATE"/*.pid; do
+    [[ -e "$f" ]] || continue
+    pid="$(cat "$f" 2>/dev/null)"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || rm -f "$f"
+  done
+  rm -f "$STATE/.gi_ok" "$STATE/.vte_ok" "${XDG_RUNTIME_DIR:-/tmp}/xlin-deps-failed"
+  if [[ -e /var/lib/pacman/db.lck ]] && ! pgrep -x 'pacman|yay|paru|pamac|pamac-daemon|packagekitd' >/dev/null 2>&1; then
+    echo "  removing a stale pacman lock"; sudo rm -f /var/lib/pacman/db.lck
+  fi
+
+  if have pacman && ! pacman-key --list-keys >/dev/null 2>&1; then
+    fixsay "Setting up the package signing keys"
+    sudo pacman-key --init && sudo pacman-key --populate archlinux || echo "  (could not set up the keys)"
+  fi
+
+  if [[ -f "$src/update.sh" ]]; then
+    fixsay "Reinstalling Xlin-soft and every missing package ($src)"
+    bash "$src/update.sh" "$mode" || echo "  (the installer reported a problem; the message above says which)"
+  else
+    echo
+    echo "!! The Xlin-soft folder is not known (Xlin-soft's source: ~/.Xlin-soft or ~/XLIN)."
+    echo "   Only the repairs that need no files are done now. For the rest, run:  cd <the folder> && bash update.sh"
+    fixsay "Installing missing packages"
+    have pacman && sudo pacman -S --needed --noconfirm hyprland waybar swaync jq socat brightnessctl networkmanager \
+      pipewire wireplumber imagemagick gtk4 python-gobject gtk4-layer-shell vte4 2>&1 | tail -3
+  fi
+
+  fixsay "Turning on the services Wi-Fi, Bluetooth and power modes need"
+  local svc
+  for svc in NetworkManager bluetooth power-profiles-daemon; do
+    systemctl is-active --quiet "$svc" 2>/dev/null || sudo systemctl enable --now "$svc" >/dev/null 2>&1 \
+      || echo "  (could not start $svc)"
+  done
+
+  fixsay "Putting the shortcuts and Hyprland hook back"
+  (cmd_hook) >/dev/null 2>&1 || true
+  have hyprctl && hyprctl reload >/dev/null 2>&1 || true
+  (cmd_keys_check fix quiet) >/dev/null 2>&1 || true
+
+  fixsay "Rebuilding the theme, bars and panel files"
+  (cmd_theme "$(cat "$STATE/theme" 2>/dev/null || echo light)") >/dev/null 2>&1 || true
+  (cmd_terminal) >/dev/null 2>&1 || true
+  fc-cache -f >/dev/null 2>&1 || true
+
+  fixsay "Starting everything that is not running"
+  (restart_all) >/dev/null 2>&1 || (cmd_start) >/dev/null 2>&1 || true
+  sleep 2
+  pgrep -x waybar >/dev/null || { [[ -f "$STATE/statusbar_off" ]] || echo "  waybar still not running: see ~/.cache/xlin/"; }
+
+  fixsay "Checking the result"
+  local out; out="$(cmd_doctor 2>&1)"; local rc=$?
+  grep -E 'MISSING|NOT RUNNING|not active' <<<"$out" || true
+  echo
+  if ((rc == 0)); then echo "All fixed: everything required is in place."
+  else echo "Some things could not be fixed automatically (listed above). Run 'xlin doctor' for details,"
+       echo "or open SysDeb -> Report and send it with your question."; fi
+  return $rc
+}
+
 # Kitty font. `xlin terminal font` picks the best installed one;
 # `xlin terminal font "Fira Code" 12` sets your own.
 pick_font() {
@@ -2456,7 +2527,7 @@ ${B}Apps and panels${R}
   xlin tools [calculator|calendar|notes|screenshot]   xlin files    xlin pin|unpin <app>
 
 ${B}Session${R}
-  xlin start | restart | reload            xlin doctor     xlin version
+  xlin start | restart | reload            xlin doctor     xlin fix     xlin version
   xlin cursor [24|32|48|64]                mouse cursor size
   xlin update [check]                      get the newest Xlin-soft from GitHub (check = look only)
   xlin uninstall [--purge]                 remove Xlin-soft and restore your old configs
@@ -2558,5 +2629,6 @@ case "${1:-help}" in
   desktop)   shift; cmd_desktop "$@" ;;
   reload)    reload_all ;;
   doctor)    cmd_doctor ;;
+  fix|repair) shift; cmd_fix "$@" ;;
   *) echo "xlin: unknown command '$1'" >&2; echo >&2; cmd_help >&2; exit 1 ;;
 esac

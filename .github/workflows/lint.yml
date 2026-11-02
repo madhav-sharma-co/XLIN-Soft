@@ -39,6 +39,8 @@ jobs:
         run: bash tests/test-bars.sh
       - name: Reset and menu commands
         run: bash tests/test-reset.sh
+      - name: Fix
+        run: bash tests/test-fix.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

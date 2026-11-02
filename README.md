@@ -125,7 +125,7 @@ Shortcuts not working? Run `xlin hook`, then `hyprctl reload`.
 
 | Problem | Try |
 |---------|-----|
-| Something is missing | `xlin doctor`, then `xlin deps` |
+| Something is broken or missing | Open SysDeb and press **Fix everything** (or run `xlin fix`; `xlin fix --full` also updates the system) |
 | Shortcuts do nothing | `xlin hook` and `hyprctl reload`, then `xlin keys check` |
 | An app looks old after an update | `xlin restart` (waiting apps are replaced) |
 | One part misbehaves (Run Bar, bar, panel, desktop, Launcher) | `xlin runbar restart` (or `bar`, `panel`, `desktop`, `launcher`); `reset` puts that part back to its defaults |
