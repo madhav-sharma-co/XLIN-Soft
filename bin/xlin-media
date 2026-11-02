@@ -365,7 +365,17 @@ class FileEngine:
 class MediaWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Media")
-        self.set_default_size(xlin_ui.scaled(1000), xlin_ui.scaled(620))
+        # the same size as Settings, but never bigger than 85% of the screen; it can be resized, maximised or
+        # made full screen, and the controls wrap and the playlist hides itself when the window gets narrow
+        w, h = xlin_ui.scaled(920), xlin_ui.scaled(640)
+        try:
+            mon = Gdk.Display.get_default().get_monitors().get_item(0)
+            geo = mon.get_geometry()
+            w, h = min(w, int(geo.width * 0.85)), min(h, int(geo.height * 0.85))
+        except Exception:       # noqa: BLE001
+            pass
+        self.set_default_size(w, h)
+        self._narrow = False
         self.add_css_class("xlin-tools")
         xlin_ui.titlebar(self, "Media")
         self.playlist, self.index = [], -1
@@ -448,7 +458,8 @@ class MediaWindow(Gtk.ApplicationWindow):
         seek.append(self.dur_lab)
         self.controls.append(seek)
 
-        row = Gtk.Box(spacing=6)
+        row = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=6, row_spacing=6,
+                          max_children_per_line=30, min_children_per_line=1)
         self.btn_prev = self.tool_btn("⏮", "Previous (P)", lambda: self.step(-1))
         self.btn_play = self.tool_btn("▶", "Play / pause (Space)", self.toggle_play)
         self.btn_stop = self.tool_btn("⏹", "Stop (S)", self.stop)
@@ -461,7 +472,6 @@ class MediaWindow(Gtk.ApplicationWindow):
         self.btn_repeat = Gtk.Button(label="Repeat: off")
         self.btn_repeat.connect("clicked", lambda _b: self.cycle_repeat())
         row.append(self.btn_repeat)
-        row.append(Gtk.Box(hexpand=True))
 
         self.speed = Gtk.DropDown.new_from_strings([f"{s:g}x" for s in SPEEDS])
         self.speed.set_selected(SPEEDS.index(1.0))
@@ -492,7 +502,7 @@ class MediaWindow(Gtk.ApplicationWindow):
         self.btn_list = Gtk.ToggleButton(label="List")
         self.btn_list.set_active(True)
         self.btn_list.set_tooltip_text("Show or hide the playlist (L)")
-        self.btn_list.connect("toggled", lambda b: self.side.set_visible(b.get_active()))
+        self.btn_list.connect("toggled", lambda b: self.side.set_visible(b.get_active() and not self.fs))
         row.append(self.btn_list)
         self.controls.append(row)
         self.left.append(self.controls)
@@ -786,6 +796,13 @@ class MediaWindow(Gtk.ApplicationWindow):
         self.btn_play.set_label("⏸" if self.engine.playing() else "▶")
 
     def tick(self):
+        try:
+            narrow = self.get_width() < xlin_ui.scaled(760)
+            if narrow != self._narrow:           # a small window: the playlist steps aside (List shows it again)
+                self._narrow = narrow
+                self.btn_list.set_active(not narrow)
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
         try:
             if self.index >= 0 and self.engine.loaded():
                 dur = self.engine.duration()

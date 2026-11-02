@@ -8,6 +8,7 @@ chk "media compiles"                  "python3 -m py_compile bin/xlin-media bin/
 chk "media: full screen (F, F11, double-click)" "grep -q 'KEY_F11' bin/xlin-media && grep -q 'def toggle_fullscreen' bin/xlin-media && grep -q 'n == 2' bin/xlin-media"
 chk "media: subtitles, audio tracks, equalizer, speed, repeat, shuffle" "grep -q 'def fill_subs' bin/xlin-media && grep -q 'def fill_audio' bin/xlin-media && grep -q 'def fill_eq' bin/xlin-media && grep -q 'SPEEDS' bin/xlin-media && grep -q 'def cycle_repeat' bin/xlin-media && grep -q 'shuffle' bin/xlin-media"
 chk "media: GStreamer with a fallback" "grep -q 'class GstEngine' bin/xlin-media && grep -q 'class FileEngine' bin/xlin-media"
+chk "media: normal window size, wrapping controls, playlist steps aside" "grep -q \"scaled(920)\" bin/xlin-media \chk "media: crash log"\chk "media: crash log" grep -q FlowBox bin/xlin-media \chk "media: crash log"\chk "media: crash log" grep -q _narrow bin/xlin-media"
 chk "media: crash log"                "grep -q 'faulthandler.enable' bin/xlin-media"
 chk "media: open starts after the window shows" "grep -q 'timeout_add(250' bin/xlin-media"
 chk "codecs are installed by deps"    "grep -q 'gst-plugin-gtk4' scripts/deps.sh && grep -q 'gst-plugins-bad' scripts/deps.sh"
