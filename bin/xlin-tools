@@ -39,7 +39,7 @@ TOOLS = {
     "calculator": ("Calculator", "dev.xlin.Calculator", 300, 420, "Quick sums", "accessories-calculator-symbolic"),
     "calendar":   ("Calendar",   "dev.xlin.Calendar",   340, 430, "Dates and weekends", "x-office-calendar-symbolic"),
     "notes":      ("Notes",      "dev.xlin.Notes",      360, 470, "Quick notes, saved as files", "accessories-text-editor-symbolic"),
-    "screenshot": ("Screenshot", "dev.xlin.Screenshot", 300, 336, "Capture an area, window or screen", "camera-photo-symbolic"),
+    "screenshot": ("Screenshot", "dev.xlin.Screenshot", 330, 440, "Capture an area, window or screen", "camera-photo-symbolic"),
 }
 MENU_ID, MENU_W, MENU_H = "dev.xlin.Tools", 300, 380
 POWER_ID, POWER_W, POWER_H = "dev.xlin.Power", 290, 300
@@ -945,14 +945,16 @@ class ScreenshotView(Gtk.Box):
             row.connect("clicked", lambda _b, m=mode: self.capture(m))
             self.append(row)
 
-        d = Gtk.Box(spacing=6, margin_top=6)
+        d = Gtk.Box(spacing=0, margin_top=8)
+        d.add_css_class("linked")
         lab = Gtk.Label(label="Delay", xalign=0, hexpand=True)
         lab.add_css_class("tools-sub")
-        d.append(lab)
+        top = Gtk.Box(spacing=8, margin_top=6)
+        top.append(lab)
         first = None
-        for secs, text in ((0, "None"), (3, "3 s"), (5, "5 s")):
+        for secs, text in ((0, "None"), (3, "3 s"), (5, "5 s"), (10, "10 s")):
             t = Gtk.ToggleButton(label=text)
-            t.add_css_class("note-new")
+            t.add_css_class("seg-btn")
             if first is None:
                 first = t
                 t.set_active(True)
@@ -960,7 +962,20 @@ class ScreenshotView(Gtk.Box):
                 t.set_group(first)
             t.connect("toggled", lambda b, s=secs: b.get_active() and setattr(self, "delay", s))
             d.append(t)
-        self.append(d)
+        top.append(d)
+        self.append(top)
+
+        self.opts = {"--copy": False, "--pointer": False, "--open": False}
+        for flag, text in (("--pointer", "Include the mouse pointer"), ("--copy", "Copy only (do not save a file)"),
+                           ("--open", "Open it afterwards")):
+            r = Gtk.Box(spacing=8, margin_top=2)
+            l = Gtk.Label(label=text, xalign=0, hexpand=True)
+            l.add_css_class("tools-sub")
+            sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+            sw.connect("state-set", lambda _s, st, f=flag: (self.opts.__setitem__(f, st), False)[1])
+            r.append(l)
+            r.append(sw)
+            self.append(r)
 
         folder = Gtk.Button(label="Open the Screenshots folder", margin_top=4)
         folder.add_css_class("welcome-ghost")
@@ -969,7 +984,10 @@ class ScreenshotView(Gtk.Box):
 
     def capture(self, mode):
         wait = self.delay + 0.5           # 0.5 s so this window is gone before the picture is taken
-        subprocess.Popen(["sh", "-c", f"sleep {wait}; exec xlin screenshot {mode}"], start_new_session=True,
+        flags = " ".join(f for f, on in self.opts.items() if on)
+        note = (f"notify-send -t {int(self.delay * 1000)} -a Xlin-soft 'Screenshot' 'Taking it in {self.delay} s' >/dev/null 2>&1; "
+                if self.delay else "")
+        subprocess.Popen(["sh", "-c", f"{note}sleep {wait}; exec xlin screenshot {mode} {flags}"], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if self.window is not None:
             self.window.close()

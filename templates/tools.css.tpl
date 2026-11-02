@@ -211,3 +211,11 @@ scrollbar slider { background-color: @C_MUTED@; border-radius: 6px; border: none
 scrollbar slider:hover { background-color: @C_ACCENT@; }
 scrollbar slider:active { background-color: @C_ACCENT@; }
 scrollbar button { min-width: 0; min-height: 0; padding: 0; opacity: 0; }
+
+/* segmented choices (screenshot delay): the chosen one is filled with the accent colour so on/off is obvious */
+.xlin-tools togglebutton.seg-btn {
+  background-image: none; background-color: @C_SOFT@; color: @C_INK@;
+  border: none; box-shadow: none; padding: 4px 10px; min-height: 28px;
+}
+.xlin-tools togglebutton.seg-btn:hover { background-color: @C_ACCENT_SOFT@; }
+.xlin-tools togglebutton.seg-btn:checked { background-color: @C_ACCENT@; color: @C_ON_ACCENT@; }

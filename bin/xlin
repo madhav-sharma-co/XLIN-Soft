@@ -1771,24 +1771,34 @@ cmd_status() {
 
 # ================================================== daily basics (v0.5)
 # ---- screenshots: xlin screenshot [region|full|window]
-cmd_screenshot() {
-  local mode="${1:-region}" dir="$HOME/Pictures/Screenshots" file geom err log="$HOME/.cache/xlin/screenshot.log"
+cmd_screenshot() {   # xlin screenshot [region|window|full] [--copy] [--pointer] [--open]
+  local mode="region" dir="$HOME/Pictures/Screenshots" file geom err log="$HOME/.cache/xlin/screenshot.log"
+  local copy_only="" pointer=() open="" a
+  for a in "$@"; do
+    case "$a" in
+      region|window|full) mode="$a" ;;
+      --copy) copy_only=1 ;;
+      --pointer) pointer=(-c) ;;
+      --open) open=1 ;;
+      *) echo "usage: xlin screenshot [region|full|window] [--copy] [--pointer] [--open]"; return 1 ;;
+    esac
+  done
   mkdir -p "$dir" "$(dirname "$log")"
   have grim || { notify -u critical "Screenshot failed" "grim is missing: sudo pacman -S grim slurp wl-clipboard"
                  echo "grim not found (sudo pacman -S grim slurp wl-clipboard)"; return 1; }
   file="$dir/Xlin-soft-$(date +%Y%m%d-%H%M%S).png"
+  [[ -n "$copy_only" ]] && file="${XDG_RUNTIME_DIR:-/tmp}/xlin-shot-$$.png"
   case "$mode" in
     region)
       have slurp || { notify -u critical "Screenshot failed" "slurp is missing: sudo pacman -S slurp"; return 1; }
       geom=$(slurp -d -b 00000033 -c ffffffcc -w 1) || return 0   # Esc = cancelled
-      err=$(grim -g "$geom" "$file" 2>&1) ;;
-    full) err=$(grim "$file" 2>&1) ;;
+      err=$(grim "${pointer[@]}" -g "$geom" "$file" 2>&1) ;;
+    full) err=$(grim "${pointer[@]}" "$file" 2>&1) ;;
     window)
       have jq && have hyprctl || { notify -u critical "Screenshot failed" "needs jq and hyprctl"; return 1; }
       geom=$(hyprctl activewindow -j | jq -r 'select(.address != null) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
       [[ -n "$geom" ]] || { notify "Screenshot failed" "There is no active window"; return 1; }
-      err=$(grim -g "$geom" "$file" 2>&1) ;;
-    *) echo "usage: xlin screenshot [region|full|window]"; return 1 ;;
+      err=$(grim "${pointer[@]}" -g "$geom" "$file" 2>&1) ;;
   esac
   if [[ ! -s "$file" ]]; then
     echo "$(date '+%F %T') $mode: ${err:-no file written}" >>"$log"
@@ -1797,7 +1807,12 @@ cmd_screenshot() {
     return 1
   fi
   have wl-copy && wl-copy <"$file"
+  if [[ -n "$copy_only" ]]; then
+    notify -t 3000 "Screenshot copied" "It is on the clipboard (not saved as a file)"
+    rm -f "$file"; echo "copied"; return 0
+  fi
   notify -t 5000 -i "$file" "Screenshot taken" "Saved in Pictures/Screenshots as $(basename "$file") (also copied to the clipboard)"
+  [[ -n "$open" ]] && { setsid -f xdg-open "$file" >/dev/null 2>&1 || true; }
   echo "$file"
 }
 

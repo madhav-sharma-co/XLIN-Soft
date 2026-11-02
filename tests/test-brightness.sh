@@ -42,7 +42,7 @@ $X brightness set 50 >/dev/null
 chk "normal values are untouched"      "[[ \$(cat $HOME/bright) -eq 127 ]]"
 
 chk "panel slider minimum is 1"        "python3 -c \"import json;assert json.load(open('config/swaync/config.json'))['widget-config']['backlight']['min']==1\""
-chk "panel has a mute button"          "python3 -c \"import json;d=json.load(open('config/swaync/config.json'));assert 'buttons-grid#sound' in d['widgets'];assert d['widgets'].index('buttons-grid#sound')<d['widgets'].index('volume')\""
+chk "panel has a Silent mode tile"    "python3 -c \"import json;d=json.load(open('config/swaync/config.json'));assert 'buttons-grid#sound' not in d['widgets'];a=d['widget-config']['buttons-grid']['actions'];assert any(x['command']=='xlin silent toggle' and x['update-command']=='xlin state silent' for x in a)\""
 chk "bar volume middle-click mutes"    "grep -A9 '\"pulseaudio\"' config/waybar/config.jsonc | grep -q '\"on-click-middle\": \"xlin sound toggle\"'"
 chk "Settings slider goes through xlin" "grep -q '\"xlin\", \"brightness\", \"set\"' bin/xlin-settings"
 
@@ -65,6 +65,6 @@ $X silent toggle >/dev/null
 chk "silent toggle unmutes"            "[[ \$($X state silent) == false ]]"
 $X silent toggle >/dev/null
 chk "silent toggle mutes again"        "[[ \$($X state silent) == true ]]"
-chk "panel silent button is a small round one" "python3 -c \"import json;a=json.load(open('config/swaync/config.json'))['widget-config']['buttons-grid#sound'];assert a['buttons-per-row']>=4 and len(a['actions'])==1 and a['actions'][0]['command']=='xlin silent toggle'\""
+chk "no separate silent row (no wasted space)" "! grep -q 'sound' <(python3 -c \"import json;print(json.load(open('config/swaync/config.json'))['widgets'])\")"
 chk "Super+T is Tools, Return is the terminal" "grep -q 'run(\"SUPER + T\", \"xlin tools\")' config/hypr/xlin.lua && ! grep -q 'SUPER + T\", terminal' config/hypr/xlin.lua && grep -q 'bind  = SUPER, T, exec, xlin tools' config/hypr/xlin.conf && grep -q 'bind  = SUPER, Return, exec, \$terminal' config/hypr/xlin.conf && ! grep -q 'SUPER, T, exec, \$terminal' config/hypr/xlin.conf"
 exit $fail

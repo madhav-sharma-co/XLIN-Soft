@@ -43,7 +43,7 @@
 .widget-buttons-grid > flowbox > flowboxchild > button {
   min-height: 46px;
   margin: 4px;
-  padding: 0 14px;
+  padding: 0 8px;
   border-radius: 14px;
   background: @C_SOFT@;
   color: @C_INK@;
@@ -69,32 +69,26 @@
   opacity: 0.9;
 }
 
-/* silent mode: a small round button (the bell), not a wide one */
-.widget-buttons-grid#sound > flowbox > flowboxchild > button,
-#sound > flowbox > flowboxchild > button {
-  min-width: 44px; min-height: 44px; padding: 0; border-radius: 50%;
-  margin: 4px;
-}
-/* the volume and brightness sliders: each one on its own soft card, with a round handle */
+/* the volume and brightness sliders: one slim rounded card each, big icon, thick pill slider (like a phone) */
 .widget-volume, .widget-backlight {
   background: @C_SOFT@;
-  border-radius: 14px;
-  padding: 10px 14px;
-  margin: 4px;
+  border-radius: 18px;
+  padding: 8px 16px;
+  margin: 2px 4px;
   color: @C_INK@;
-  font-size: 15px;
+  font-size: 20px;
 }
-.widget-volume scale, .widget-backlight scale { padding: 0; margin: 0 0 0 10px; min-height: 0; }
+.widget-volume scale, .widget-backlight scale { padding: 0; margin: 0 0 0 14px; min-height: 0; }
 scale trough {
   background: alpha(@C_MUTED@, 0.28);
   border: none;
-  border-radius: 4px;
-  min-height: 6px;
+  border-radius: 8px;
+  min-height: 12px;
   min-width: 0;
   padding: 0;
   margin: 0;
 }
-scale trough highlight { background: @C_ACCENT@; border-radius: 4px; min-height: 6px; }
+scale trough highlight { background: @C_ACCENT@; border-radius: 8px; min-height: 12px; }
 scale trough slider {
   background: @C_ACCENT@;
   border: 3px solid @C_PANEL@;
@@ -102,7 +96,7 @@ scale trough slider {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   min-width: 12px;
   min-height: 12px;
-  margin: -7px;
+  margin: -6px;
 }
 
 .notification-row { outline: none; }
