@@ -104,6 +104,13 @@ def media():
             '<path d="M54 46l30 18-30 18z" fill="#e5484d"/>')
 
 
+def book():
+    return ('<path d="M24 38c14-6 28-6 40 4v54c-12-10-26-10-40-4z" fill="#fff"/>'
+            '<path d="M104 38c-14-6-28-6-40 4v54c12-10 26-10 40-4z" fill="#fff" fill-opacity=".86"/>'
+            '<path d="M64 42v54" stroke="#3b6df0" stroke-width="3" stroke-opacity=".5"/>'
+            '<path d="M34 52c8-2 16-1 24 2M34 64c8-2 16-1 24 2M70 54c8-3 16-4 24-2M70 66c8-3 16-4 24-2" stroke="#3b6df0" stroke-width="3.4" stroke-linecap="round" stroke-opacity=".55" fill="none"/>')
+
+
 def debug():
     return ('<ellipse cx="64" cy="70" rx="22" ry="28" fill="#fff"/>'
             '<circle cx="64" cy="40" r="12" fill="#fff"/>'
@@ -124,6 +131,7 @@ ICONS = {
     "xlin-calendar": ("#f5f6fa", "#d9dce6", calendar()),
     "xlin-files": ("#5ac8fa", "#0a7cff", folder()),
     "xlin-tools": ("#bf7bff", "#5a57e0", tools()),
+    "xlin-manual": ("#7fd6ff", "#3b6df0", book()),
     "xlin-welcome": ("#ff8fb1", "#ff8a3d", sparkle()),
     "xlin-monitor": ("#5ee0a0", "#16a05f", monitor()),
     "xlin-terminal": ("#5b6272", "#23262f", terminal()),

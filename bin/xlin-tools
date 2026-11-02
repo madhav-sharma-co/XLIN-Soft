@@ -13,6 +13,7 @@ import ast
 import calendar
 import json
 import operator
+import re
 import os
 import shutil
 import subprocess
@@ -25,7 +26,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 import os as _os
 sys.path[:0] = ["/usr/local/lib/xlin", _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "..", "lib")]
 import xlin_ui  # noqa: E402
@@ -51,7 +52,7 @@ SESSION_ITEMS = [("lock", "\uf023", "Lock Screen", "lock", False),
                  ("poweroff", "\uf011", "Power Off", "poweroff", True)]
 WIFI_ID, WIFI_W, WIFI_H = "dev.xlin.Wifi", 330, 440
 BT_ID, BT_W, BT_H = "dev.xlin.Bluetooth", 320, 380
-MANUAL_ID, MANUAL_W, MANUAL_H = "dev.xlin.Manual", 560, 600
+MANUAL_ID, MANUAL_W, MANUAL_H = "dev.xlin.Manual", 700, 640
 VOL_ID, VOL_W, VOL_H = "dev.xlin.Volume", 320, 360
 # the windows that are not one of the TOOLS: key -> Wayland app id
 EXTRA_IDS = {"power": POWER_ID, "session": SESSION_ID, "wifi": WIFI_ID, "bluetooth": BT_ID, "manual": MANUAL_ID, "volume": VOL_ID}
@@ -1679,55 +1680,116 @@ class VolumeWindow(ToolWindow, Dropdown):
 
 
 # ---------------------------------------------------------------- the manual
-MANUAL_TEXT = [
-    ("h", "Welcome to Xlin-soft"),
-    ("p", "A calm, clean desktop for Hyprland on Arch Linux: light and dark themes, glass panels, smooth "
-          "animations and a complete set of its own apps."),
-    ("h", "The basics"),
-    ("p", "Super + Space opens the Launcher: search, pinned and recent apps, and every app.\n"
-          "Super + Return opens the Terminal, Super + T Tools, Super + E Files, Super + S Settings, Super + C the control panel.\n"
-          "Super + Q closes a window, Super + F makes it fullscreen. Press Super + / to see every shortcut."),
-    ("h", "Your desktop"),
-    ("p", "Top bar: this X button (the manual), the current app, and on the right Settings, Tools, Wi-Fi, "
-          "Bluetooth, sound, battery, clock, power and the control panel. Click Wi-Fi or Bluetooth for a quick menu.\n"
-          "Run Bar (bottom): your pinned and running apps and the Launcher button.\n"
-          "Desktop: right-click for widgets, wallpaper and icon size. Drag a window's edge to resize it; "
-          "double-click its title bar to fill the screen."),
-    ("h", "When something is wrong"),
-    ("p", "Open SysDeb (Settings → About) to check, read logs and repair. In a terminal: xlin doctor.\n"
-          "xlin restart restarts everything. To restart or reset one part: xlin runbar | bar | panel | desktop | "
-          "launcher restart (or reset)."),
-    ("h", "About"),
-    ("p", "Xlin-soft is made by Madhav Sharma with Team & Axion Co."),
+MANUAL_TABS = [
+    ("Start", [
+        ("h", "Welcome to Xlin-soft"),
+        ("p", "A calm, clean desktop for Hyprland on Arch Linux: light and dark themes, glass panels, smooth "
+              "animations and a complete set of its own apps."),
+        ("h", "First steps"),
+        ("p", "1. Press Super + Space to open the Launcher: search, pinned and recent apps, and every app.\n"
+              "2. Press Super + S to open Settings and make it yours: theme, accent colour, fonts, wallpaper.\n"
+              "3. Press Super + / any time to see every shortcut.\n"
+              "4. Something wrong? Open SysDeb and press Fix everything."),
+        ("h", "Make it yours"),
+        ("p", "Settings has General (sound, brightness, battery, sleep, mouse), Connectivity (Wi-Fi, Bluetooth), "
+              "Desktop (status bar, Run Bar, icons, widgets, wallpapers), Apps and Tools (default apps), "
+              "Personalization (theme, accent, fonts, transparency, animations) and About (update, restart, reset)."),
+    ]),
+    ("Desktop", [
+        ("h", "Top bar"),
+        ("p", "This X button opens the manual, then the current app. On the right: Settings, Tools, Wi-Fi, Bluetooth, "
+              "sound, battery, clock, power and the control panel. Click Wi-Fi, Bluetooth, sound or battery for a quick menu. "
+              "Show or hide any item in Settings, Desktop."),
+        ("h", "Run Bar"),
+        ("p", "The bar at the bottom: your pinned and running apps and the Launcher button. Right-click an app in the "
+              "Launcher to pin it. It hides itself until you reach the bottom edge (you can change that)."),
+        ("h", "Desktop"),
+        ("p", "Right-click for new folders, widgets, wallpaper and icon size. Drag one icon onto another to make an app "
+              "folder, like on a phone. Drag files in from Files. Your files live in the Desktop folder."),
+        ("h", "Windows"),
+        ("p", "Drag a window's edge to resize it, double-click its title bar to fill the screen. Super + Q closes it, "
+              "Super + F makes it fullscreen, Super + 1..9 switches workspace. The hide button next to the window "
+              "buttons sends a window away and the Run Bar brings it back."),
+        ("h", "Control panel"),
+        ("p", "Super + C: Wi-Fi, Bluetooth, airplane mode, do not disturb, dark mode, night light, silent mode, "
+              "brightness, volume and notifications. Settings and Reload are at the end."),
+    ]),
+    ("Apps", [
+        ("h", "Xlin-soft apps"),
+        ("p", "Files: browse, copy, move, tag and preview.\n"
+              "Terminal: a full terminal with tabs, search and your fonts.\n"
+              "Media: music and video with playlist, subtitles, speed, equalizer and full screen (press F).\n"
+              "Store: find and install apps and updates.\n"
+              "SysMon: live CPU, memory and apps, and end a stuck one.\n"
+              "SysDeb: health checks, logs and Fix everything.\n"
+              "Tools: calculator, calendar, notes, clock and screenshots."),
+        ("h", "Default apps"),
+        ("p", "Settings, Apps and Tools decides which app opens what: web, mail, music, video, images, documents "
+              "and the terminal. Xlin-soft's own apps are the default until you choose another."),
+        ("h", "Other apps"),
+        ("p", "Any Linux app works. Install more from the Store or with pacman, then pin them to the Launcher or Run Bar."),
+    ]),
+    ("Shortcuts", None),
+    ("Help", [
+        ("h", "When something is wrong"),
+        ("p", "Open SysDeb (Super + Space, type SysDeb). Press Run checks to see what is wrong and Fix everything "
+              "to repair it: it reinstalls Xlin-soft, installs missing packages and restarts the bars. "
+              "In a terminal: xlin doctor to check, xlin fix to repair."),
+        ("h", "Restart or reset"),
+        ("p", "xlin restart restarts everything. To restart or reset one part: xlin runbar | bar | panel | desktop | "
+              "launcher restart (or reset). Settings, About has Restart Xlin-soft and Reset Xlin-soft settings, "
+              "which puts every choice back to a fresh install."),
+        ("h", "Update"),
+        ("p", "Settings, About, Update asks: full system update (y) or only Xlin-soft (n, small download)."),
+    ]),
+    ("About", [
+        ("h", "Xlin-soft"),
+        ("p", "Xlin-soft is made by Madhav Sharma with Team & Axion Co."),
+        ("p", "It is free software for Arch Linux and Hyprland. The sibling Xlin-advance is coming later."),
+    ]),
 ]
 
 
 class ManualWindow(ToolWindow):
-    """A small manual: an introduction to Xlin-soft and who made it."""
+    """The manual: tabs for Start, Desktop, Apps, Shortcuts, Help and About."""
 
     def __init__(self, app):
         super().__init__(app, "Xlin-soft Manual", MANUAL_W, MANUAL_H, with_close=True, resizable=True)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_end(10)
-        for kind, text in MANUAL_TEXT:
-            lab = Gtk.Label(label=text, xalign=0, wrap=True)
-            lab.set_selectable(kind == "p")
-            if kind == "h":
-                lab.add_css_class("power-big" if text.startswith("Welcome") else "tool-title")
-                lab.set_margin_top(10)
-            else:
-                lab.add_css_class("tools-sub")
-            box.append(lab)
+        head = Gtk.Box(spacing=12)
+        icon = Gtk.Image.new_from_icon_name("xlin-manual")
+        icon.set_pixel_size(44)
+        head.append(icon)
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
+        t = Gtk.Label(label="Xlin-soft Manual", xalign=0)
+        t.add_css_class("power-big")
+        titles.append(t)
         ok, ver = cmd_out(["xlin", "version"], 3)
-        if ok:
-            v = Gtk.Label(label=ver, xalign=0)
-            v.add_css_class("tools-sub")
-            box.append(v)
-        sc = Gtk.ScrolledWindow(vexpand=True)
-        sc.set_child(box)
-        self.body.append(sc)
+        v = Gtk.Label(label=ver if ok else "", xalign=0)
+        v.add_css_class("tools-sub")
+        titles.append(v)
+        head.append(titles)
+        self.body.append(head)
+
+        self.stack = Gtk.Stack(vexpand=True)
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        tabs = Gtk.Box(spacing=0, margin_top=8, margin_bottom=6)
+        tabs.add_css_class("linked")
+        first = None
+        for name, content in MANUAL_TABS:
+            b = Gtk.ToggleButton(label=name)
+            if first is None:
+                first = b
+            else:
+                b.set_group(first)
+            b.connect("toggled", lambda btn, n=name: btn.get_active() and self.stack.set_visible_child_name(n))
+            tabs.append(b)
+            self.stack.add_named(self.page(content), name)
+        first.set_active(True)
+        self.body.append(tabs)
+        self.body.append(self.stack)
+
         row = Gtk.Box(spacing=8, margin_top=6)
-        for label, cmd in (("Open Settings", ["xlin", "settings"]), ("All shortcuts", ["xlin", "keys", "menu"]),
+        for label, cmd in (("Open Settings", ["xlin", "settings"]), ("SysDeb", ["xlin", "debug"]),
                            ("Welcome tour", ["xlin", "welcome"])):
             b = Gtk.Button(label=label)
             b.connect("clicked", lambda _b, c=cmd: xlin_ui.run(c))
@@ -1736,6 +1798,31 @@ class ManualWindow(ToolWindow):
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", lambda _c, k, _cd, _st: (self.close(), True)[1] if k == Gdk.KEY_Escape else False)
         self.add_controller(keys)
+
+    def page(self, content):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_end(10)
+        if content is None:                      # the live shortcut list
+            ok, out = cmd_out(["xlin", "keys"], 5)
+            text = re.sub(r"\x1b\[[0-9;]*m", "", out) if ok and out else "Run xlin keys in a terminal."
+            lab = Gtk.Label(label=text.strip(), xalign=0, yalign=0)
+            lab.add_css_class("tools-sub")
+            lab.set_selectable(True)
+            lab.set_attributes(Pango.AttrList.from_string("0 -1 family monospace"))
+            box.append(lab)
+        else:
+            for kind, text in content:
+                lab = Gtk.Label(label=text, xalign=0, wrap=True)
+                lab.set_selectable(kind == "p")
+                if kind == "h":
+                    lab.add_css_class("power-big" if text.startswith("Welcome") else "tool-title")
+                    lab.set_margin_top(10)
+                else:
+                    lab.add_css_class("tools-sub")
+                box.append(lab)
+        sc = Gtk.ScrolledWindow(vexpand=True)
+        sc.set_child(box)
+        return sc
 
 
 class SessionWindow(ToolWindow):

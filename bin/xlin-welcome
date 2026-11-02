@@ -104,11 +104,118 @@ def page(title, sub):
     return box
 
 
+_FONTS = {}
+
+
+def font_families(mono):
+    """Installed font family names (monospace only when mono), listed once."""
+    if mono in _FONTS:
+        return _FONTS[mono]
+    ok, out = run(["fc-list", ":spacing=100" if mono else ":", "family"], 10)
+    names = set()
+    for line in (out or "").splitlines():
+        first = line.split(",")[0].strip()
+        if first and not first.startswith("."):
+            names.add(first)
+    _FONTS[mono] = sorted(names, key=str.lower)
+    return _FONTS[mono]
+
+
+def terminal_font():
+    fam, size = "", "11.5"
+    try:
+        with open(os.path.expanduser("~/.config/kitty/xlin-font.conf")) as f:
+            for ln in f:
+                m = re.match(r'font_family\s+family="?([^"\n]+)"?', ln)
+                if m:
+                    fam = m.group(1)
+                m = re.match(r"font_size\s+([0-9.]+)", ln)
+                if m:
+                    size = m.group(1)
+    except OSError:
+        pass
+    return fam, size
+
+
+def segmented(options, current, on_change):
+    box = Gtk.Box(spacing=0)
+    box.add_css_class("linked")
+    first = None
+    for value, label in options:
+        b = Gtk.ToggleButton(label=label)
+        if first is None:
+            first = b
+        else:
+            b.set_group(first)
+        if str(value) == str(current):
+            b.set_active(True)
+        b.connect("toggled", lambda btn, v=value: btn.get_active() and on_change(v))
+        box.append(b)
+    return box
+
+
+def font_dropdown(families, current, on_pick):
+    if current and current not in families:
+        families = [current] + families
+    dd = Gtk.DropDown.new_from_strings(families or [current or "DM Sans"])
+    dd.set_enable_search(True)
+    dd.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+    dd.set_size_request(xlin_ui.scaled(200), -1)
+    if current in families:
+        dd.set_selected(families.index(current))
+    state = {"ready": False}
+    GLib.idle_add(lambda: (state.update(ready=True), False)[1])
+
+    def changed(_d, _p):
+        item = dd.get_selected_item()
+        if state["ready"] and item is not None:
+            on_pick(item.get_string())
+    dd.connect("notify::selected", changed)
+    return dd
+
+
+def setting_row(title, sub, widget):
+    r = Gtk.Box(spacing=12, margin_top=10)
+    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True, valign=Gtk.Align.CENTER)
+    t = Gtk.Label(label=title, xalign=0)
+    text.append(t)
+    if sub:
+        s = Gtk.Label(label=sub, xalign=0, wrap=True)
+        s.add_css_class("welcome-sub")
+        text.append(s)
+    r.append(text)
+    widget.set_valign(Gtk.Align.CENTER)
+    r.append(widget)
+    return r
+
+
+def switch_row(title, sub, active, cb):
+    sw = Gtk.Switch()
+    sw.set_active(active)
+    sw.connect("state-set", lambda _s, st: (cb(st), False)[1])
+    return setting_row(title, sub, sw)
+
+
+def slider_widget(value, cb, lo, hi):
+    sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, 1)
+    sc.set_value(value)
+    sc.set_size_request(xlin_ui.scaled(220), -1)
+    sc.set_draw_value(False)
+    st = {"id": 0}
+
+    def changed(_s):
+        if st["id"]:
+            GLib.source_remove(st["id"])
+        st["id"] = GLib.timeout_add(150, lambda: (st.update(id=0), cb(sc.get_value()), False)[2])
+    sc.connect("value-changed", changed)
+    return sc
+
+
 class WelcomeWindow(Gtk.ApplicationWindow):
     def __init__(self, app, reload_css):
         super().__init__(application=app, title="Welcome to Xlin-soft")
         self.reload_css = reload_css
-        self.set_default_size(xlin_ui.scaled(600), xlin_ui.scaled(500))
+        self.set_default_size(xlin_ui.scaled(720), xlin_ui.scaled(600))
         self.set_resizable(False)
         self.set_decorated(False)
         self.add_css_class("xlin-tools")
@@ -132,9 +239,15 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         root.append(self.stack)
 
-        self.builders = [self.p_welcome, self.p_look, self.p_wall, self.p_basics, self.p_keys, self.p_done]
+        self.builders = [self.p_welcome, self.p_look, self.p_text, self.p_motion, self.p_wall, self.p_desktop,
+                         self.p_comfort, self.p_keys, self.p_done]
         for i, b in enumerate(self.builders):
-            self.stack.add_named(b(), f"p{i}")
+            sc = Gtk.ScrolledWindow(vexpand=True)
+            sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            inner = b()
+            inner.set_margin_end(10)
+            sc.set_child(inner)
+            self.stack.add_named(sc, f"p{i}")
         self.index = 0
 
         bar = Gtk.Box(spacing=10)
@@ -146,7 +259,11 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         self.next = Gtk.Button()
         self.next.add_css_class("welcome-primary")
         self.next.connect("clicked", lambda _b: self.go(1))
-        for w in (self.count, self.back, self.next):
+        self.settings_btn = Gtk.Button(label="Open Settings")
+        self.settings_btn.add_css_class("welcome-ghost")
+        self.settings_btn.set_tooltip_text("Change any of this later, and much more, in Settings")
+        self.settings_btn.connect("clicked", lambda _b: xlin_ui.run(["xlin", "settings"]))
+        for w in (self.count, self.settings_btn, self.back, self.next):
             bar.append(w)
         root.append(bar)
         self.go(0)
@@ -235,12 +352,84 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         b.append(self.wall_status)
         return b
 
+    def p_text(self):
+        b = page("Fonts and sizes", "Pick the fonts and how big the text is. Everything follows at once.")
+        b.append(setting_row("System font", "Bars, panels and apps", font_dropdown(
+            font_families(False), read_state("ui_font", "DM Sans"),
+            lambda n: in_thread(lambda: run(["xlin", "font", n], 40)))))
+        b.append(setting_row("Text size", "Bars, panels and apps", segmented(
+            [("small", "Small"), ("normal", "Normal"), ("large", "Large"), ("huge", "Huge")],
+            read_state("ui_size", "normal"), lambda v: in_thread(lambda: run(["xlin", "font", "size", v], 40)))))
+        tfont, tsize = terminal_font()
+        b.append(setting_row("Terminal font", "Monospace fonts only", font_dropdown(
+            font_families(True), tfont, lambda n: in_thread(lambda: run(["xlin", "terminal", "font", n, tsize], 20)))))
+        b.append(setting_row("Terminal text size", "Applies to new terminal windows", segmented(
+            [("10", "Small"), ("11.5", "Normal"), ("13", "Large"), ("15", "Huge")], tsize,
+            lambda v: in_thread(lambda: run(["xlin", "terminal", "font", tfont, v], 20)))))
+        b.append(setting_row("Mouse cursor size", None, segmented(
+            [("24", "Small"), ("32", "Medium"), ("48", "Large"), ("64", "Huge")], read_state("cursor_size", "24"),
+            lambda v: in_thread(lambda: run(["xlin", "cursor", v])))))
+        return b
+
+    def p_motion(self):
+        b = page("Motion and windows", "How lively the desktop feels.")
+        b.append(setting_row("Animations", "Windows, Launcher, panels and workspaces", segmented(
+            [("off", "Off"), ("subtle", "Subtle"), ("smooth", "Smooth")], read_state("animations", "smooth"),
+            lambda v: in_thread(lambda: run(["xlin", "animations", v], 15)))))
+
+        def set_opacity(v):
+            val = "1.0" if v >= 100 else f"{v / 100:.2f}"
+            in_thread(lambda: run(["xlin", "opacity", val]))
+        b.append(setting_row("Window transparency", "Left: see-through, right: solid. Fullscreen windows are always solid",
+                             slider_widget(85, set_opacity, 40, 100)))
+        b.append(switch_row("Natural scrolling", "On: the page follows your fingers, like a phone. Off: the usual mouse wheel",
+                            read_state("scroll", "normal") == "natural",
+                            lambda on: in_thread(lambda: run(["xlin", "scroll", "natural" if on else "normal"], 10))))
+        return b
+
+    def p_desktop(self):
+        b = page("Top bar and Run Bar", "Decide what you see around the desktop.")
+        b.append(switch_row("Show the top bar", "Super+C still opens the control panel when it is off",
+                            not os.path.exists(os.path.join(STATE, "statusbar_off")),
+                            lambda on: in_thread(lambda: run(["xlin", "statusbar", "on" if on else "off"], 10))))
+        hidden = set(read_state("bar_hidden", "").split())
+        b.append(switch_row("Time and date on the top bar", None, "clock" not in hidden,
+                            lambda on: in_thread(lambda: run(["xlin", "bar", "show" if on else "hide", "clock"]))))
+        b.append(switch_row("Auto-hide the Run Bar", "Show it only when you reach the bottom edge",
+                            read_state("dock_autohide", "on") != "off",
+                            lambda on: in_thread(lambda: run(["xlin", "runbar", "autohide", "on" if on else "off"]))))
+        b.append(setting_row("Run Bar icon size", None, segmented(
+            [("32", "Small"), ("40", "Medium"), ("48", "Large")], read_state("dock_icon", "40"),
+            lambda v: in_thread(lambda: run(["xlin", "runbar", "size", v])))))
+        b.append(switch_row("Desktop layer", "Right-click menu, icons and widgets on the desktop",
+                            not os.path.exists(os.path.join(STATE, "desktop_off")),
+                            lambda on: in_thread(lambda: run(["xlin", "desktop", "on" if on else "off"], 20))))
+        return b
+
+    def p_comfort(self):
+        b = page("Comfort and power", "Screen, sleep and lock.")
+        b.append(switch_row("Lock when idle", "Lock the screen and sleep when you are away",
+                            not os.path.exists(os.path.join(STATE, "idle_off")), self.set_idle))
+        b.append(setting_row("Lock after", None, segmented(
+            [("2", "2 min"), ("5", "5 min"), ("10", "10 min"), ("30", "30 min")], read_state("idle_minutes", "5"),
+            lambda v: in_thread(lambda: run(["xlin", "idle", "set", v], 20)))))
+        b.append(setting_row("Sleep after", "The screen locks just before", segmented(
+            [("5", "5 min"), ("10", "10 min"), ("15", "15 min"), ("30", "30 min"), ("off", "Never")],
+            read_state("sleep_minutes", "5"), lambda v: in_thread(lambda: run(["xlin", "idle", "sleep", v], 20)))))
+        b.append(switch_row("Night light", "A warmer screen colour in the evening",
+                            read_state("nightlight", "") != "",
+                            lambda on: in_thread(lambda: run(["xlin", "nightlight", "on" if on else "off"], 20))))
+        b.append(switch_row("Keep apps ready", "Settings, Files and the Store wait out of sight so they open instantly",
+                            not os.path.exists(os.path.join(STATE, "warm_off")),
+                            lambda on: in_thread(lambda: run(["xlin", "warm", "on" if on else "off"], 20))))
+        return b
+
     def p_done(self):
         b = page("You're all set", "A few things worth knowing:")
         for key, text in (("Super + Space", "Open the launcher and find any app"),
                           ("Super + /", "Show every shortcut"),
                           ("Super + S", "Open Settings (updates are in About)"),
-                          ("Super + U", "Notes, calculator and calendar")):
+                          ("Super + T", "Tools: notes, calculator and calendar")):
             r = Gtk.Box(spacing=14, margin_top=8)
             k = Gtk.Label(label=key, xalign=0)
             k.set_size_request(xlin_ui.scaled(120), -1)
@@ -248,28 +437,14 @@ class WelcomeWindow(Gtk.ApplicationWindow):
             r.append(k)
             r.append(Gtk.Label(label=text, xalign=0))
             b.append(r)
-        return b
-
-    def p_basics(self):
-        b = page("Good defaults", "Two things most people like to decide right away.")
-        for title, sub, active, cb in (
-            ("Auto-hide the Run Bar", "Show it only when you reach the bottom edge",
-             read_state("dock_autohide", "on") != "off", self.set_autohide),
-            ("Lock when idle", "Lock the screen after 5 minutes",
-             not os.path.exists(os.path.join(STATE, "idle_off")), self.set_idle),
-        ):
-            r = Gtk.Box(spacing=12, margin_top=12)
-            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
-            text.append(Gtk.Label(label=title, xalign=0))
-            s = Gtk.Label(label=sub, xalign=0)
-            s.add_css_class("welcome-sub")
-            text.append(s)
-            sw = Gtk.Switch(valign=Gtk.Align.CENTER)
-            sw.set_active(active)
-            sw.connect("state-set", lambda _s, st, f=cb: (f(st), False)[1])
-            r.append(text)
-            r.append(sw)
-            b.append(r)
+        more = Gtk.Button(label="Open Settings to change anything", halign=Gtk.Align.START, margin_top=16)
+        more.add_css_class("welcome-choice")
+        more.connect("clicked", lambda _b: xlin_ui.run(["xlin", "settings"]))
+        b.append(more)
+        tip = Gtk.Label(label="Something wrong later? Open SysDeb and press Fix everything. "
+                              "The X button on the top bar opens the Xlin-soft Manual.", xalign=0, wrap=True, margin_top=10)
+        tip.add_css_class("welcome-sub")
+        b.append(tip)
         return b
 
     def p_keys(self):

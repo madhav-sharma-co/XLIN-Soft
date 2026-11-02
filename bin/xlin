@@ -1054,6 +1054,9 @@ cmd_doctor() {
   chk required nmcli networkmanager;   chk required wpctl wireplumber;    chk required brightnessctl brightnessctl
   if vte_ok; then echo "  ok       Xlin-soft Terminal (vte4)"
   else echo "  missing  Xlin-soft Terminal needs vte4   (sudo pacman -S vte4); another terminal is used meanwhile"; fi
+  if python3 -c 'import gi; gi.require_version("Gst","1.0"); from gi.repository import Gst; Gst.init(None); assert Gst.ElementFactory.find("gtk4paintablesink") and Gst.ElementFactory.find("playbin")' >/dev/null 2>&1
+  then echo "  ok       video and music playback (GStreamer)"
+  else echo "  missing  video playback needs gst-plugin-gtk4 gst-plugins-good gst-libav   (sudo pacman -S gst-plugin-gtk4 gst-plugins-good gst-plugins-bad gst-libav); xlin fix installs them"; fi
   chk required magick imagemagick;     chk required python3 python;       chk optional kitty kitty
   b=nwg-dock-hyprland; have "$b" && echo "  ok       $b" || { echo "  MISSING  $b   (AUR: nwg-dock-hyprland)"; missing=1; }
   python3 -c 'import gi; gi.require_version("Gtk","4.0")' 2>/dev/null \

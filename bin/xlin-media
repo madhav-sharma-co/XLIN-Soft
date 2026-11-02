@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-"""Xlin-soft Media - plays music and video. Open files or a folder, drop them on the window, or run
-`xlin media file1 file2`. Space plays and pauses, arrows skip. Needs GTK4's GStreamer backend
-(gst-plugins-good and gst-libav for most formats).
+"""Xlin-soft Media - plays music and video, like a full media player.
+
+Open files, a folder or a web address, drop files on the window, or run `xlin media file1 file2`.
+Features: playlist (shuffle, repeat), seek bar, volume up to 150%, speed 0.25x-2x, full screen,
+subtitles (automatic, from a file, or a track), audio tracks, equalizer presets, track info, keyboard control.
+
+Keys: Space play/pause - Left/Right jump 10 s (Shift: 60 s) - Up/Down volume - M mute - F or F11 or double-click
+full screen - Esc leave full screen - N / P next / previous - [ / ] slower / faster - S stop - L list.
+
+Plays through GStreamer (package gst-plugins-good gst-libav gst-plugin-gtk4). Falls back to GTK's own media
+player when that is not installed. Problems are written to ~/.cache/xlin/media.log.
 """
+import faulthandler
 import os
+import random
 import sys
+import traceback
 
 import gi
 
@@ -15,16 +26,52 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 sys.path[:0] = ["/usr/local/lib/xlin", os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib")]
 import xlin_ui  # noqa: E402
 
+try:                       # a hard crash (a broken codec library) leaves a trace in the log instead of nothing
+    os.makedirs(os.path.expanduser("~/.cache/xlin"), exist_ok=True)
+    faulthandler.enable(open(os.path.expanduser("~/.cache/xlin/media-crash.log"), "a"))
+except OSError:
+    pass
+
+GST_ERROR = None
+try:
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst  # noqa: E402
+    Gst.init(None)
+except Exception as e:     # noqa: BLE001
+    Gst = None
+    GST_ERROR = str(e)
+
 APP_ID = "dev.xlin.Media"
+STATE = os.path.expanduser("~/.config/xlin/state")
 CSS_FILE = os.path.expanduser("~/.config/xlin/tools.css")
-EXTS = {".mp3", ".flac", ".ogg", ".opus", ".wav", ".m4a", ".aac", ".wma", ".mp4", ".mkv", ".webm", ".avi",
-        ".mov", ".m4v", ".mpg", ".mpeg"}
+EXTS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".wav", ".m4a", ".aac", ".wma", ".mka", ".mp4", ".mkv", ".webm",
+        ".avi", ".mov", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".ts", ".3gp", ".ogv"}
+SUB_EXTS = (".srt", ".ass", ".ssa", ".vtt", ".sub")
+HINT = "Install the codecs:  sudo pacman -S gst-plugins-good gst-plugins-bad gst-libav gst-plugin-gtk4   (or run: xlin fix)"
+SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+# 10-band equalizer presets (dB per band: 29 59 119 227 474 947 1.9k 3.8k 7.5k 15k Hz)
+EQ_PRESETS = [("Flat", [0] * 10),
+              ("Bass boost", [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]),
+              ("Treble boost", [0, 0, 0, 0, 0, 1, 3, 4, 5, 6]),
+              ("Vocal", [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1]),
+              ("Rock", [4, 3, 1, -1, -2, 0, 2, 3, 4, 4]),
+              ("Classical", [0, 0, 0, 0, 0, 0, -2, -2, -2, -4])]
+
+
+def log(msg):
+    try:
+        with open(os.path.expanduser("~/.cache/xlin/media.log"), "a") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
 
 
 def media_files(paths):
     out = []
     for p in paths:
-        if os.path.isdir(p):
+        if "://" in p:
+            out.append(p)
+        elif os.path.isdir(p):
             for root, _d, files in os.walk(p):
                 out += [os.path.join(root, f) for f in sorted(files) if os.path.splitext(f)[1].lower() in EXTS]
         elif os.path.splitext(p)[1].lower() in EXTS or os.path.isfile(p):
@@ -32,139 +79,862 @@ def media_files(paths):
     return out
 
 
+def to_uri(p):
+    return p if "://" in p else Gio.File.new_for_path(os.path.abspath(p)).get_uri()
+
+
+def clock(seconds):
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def read_state(name, default=""):
+    try:
+        with open(os.path.join(STATE, name)) as f:
+            return f.read().strip() or default
+    except OSError:
+        return default
+
+
+def write_state(name, value):
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(os.path.join(STATE, name), "w") as f:
+            f.write(str(value))
+    except OSError:
+        pass
+
+
+# ------------------------------------------------------------------ engines
+class GstEngine:
+    """GStreamer playbin: everything a media player needs."""
+    name = "gst"
+    full = True
+
+    @staticmethod
+    def available():
+        if Gst is None:
+            return False
+        return Gst.ElementFactory.find("playbin") is not None and Gst.ElementFactory.find("gtk4paintablesink") is not None
+
+    def __init__(self, on_eos, on_error, on_tags, on_state):
+        self.on_eos, self.on_error, self.on_tags, self.on_state = on_eos, on_error, on_tags, on_state
+        sink = Gst.ElementFactory.make("gtk4paintablesink", "vsink")
+        self.paintable = sink.props.paintable
+        video_sink = sink
+        gl = Gst.ElementFactory.make("glsinkbin", "glsink")
+        if gl is not None:
+            try:
+                gl.set_property("sink", sink)
+                video_sink = gl
+            except Exception:       # noqa: BLE001
+                video_sink = sink
+        self.pipe = Gst.ElementFactory.make("playbin", "player")
+        self.pipe.set_property("video-sink", video_sink)
+        self.eq = Gst.ElementFactory.make("equalizer-10bands", "eq")
+        if self.eq is not None:
+            self.pipe.set_property("audio-filter", self.eq)
+        bus = self.pipe.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self.on_message)
+        self.rate = 1.0
+        self.uri = None
+
+    def on_message(self, _bus, msg):
+        t = msg.type
+        if t == Gst.MessageType.EOS:
+            self.on_eos()
+        elif t == Gst.MessageType.ERROR:
+            err, dbg = msg.parse_error()
+            log(f"gst error: {err.message} ({dbg})")
+            self.on_error(err.message)
+        elif t == Gst.MessageType.TAG:
+            self.on_tags(msg.parse_tag())
+        elif t == Gst.MessageType.STATE_CHANGED and msg.src == self.pipe:
+            self.on_state()
+
+    def load(self, uri, suburi=None):
+        self.pipe.set_state(Gst.State.NULL)
+        self.uri = uri
+        self.pipe.set_property("uri", uri)
+        self.pipe.set_property("suburi", suburi or "")
+        self.rate = 1.0
+        self.pipe.set_state(Gst.State.PLAYING)
+
+    def play(self):
+        self.pipe.set_state(Gst.State.PLAYING)
+
+    def pause(self):
+        self.pipe.set_state(Gst.State.PAUSED)
+
+    def stop(self):
+        self.pipe.set_state(Gst.State.NULL)
+
+    def playing(self):
+        return self.pipe.get_state(0)[1] == Gst.State.PLAYING
+
+    def loaded(self):
+        return self.pipe.get_state(0)[1] in (Gst.State.PLAYING, Gst.State.PAUSED)
+
+    def position(self):
+        ok, pos = self.pipe.query_position(Gst.Format.TIME)
+        return pos / Gst.SECOND if ok else 0.0
+
+    def duration(self):
+        ok, dur = self.pipe.query_duration(Gst.Format.TIME)
+        return dur / Gst.SECOND if ok and dur > 0 else 0.0
+
+    def seek(self, seconds):
+        seconds = max(0.0, seconds)
+        self.pipe.seek(self.rate, Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
+                       Gst.SeekType.SET, int(seconds * Gst.SECOND), Gst.SeekType.NONE, -1)
+
+    def set_rate(self, rate):
+        self.rate = rate
+        self.pipe.seek(rate, Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
+                       Gst.SeekType.SET, int(self.position() * Gst.SECOND), Gst.SeekType.NONE, -1)
+
+    def set_volume(self, v):
+        self.pipe.set_property("volume", float(v))
+
+    def set_mute(self, m):
+        self.pipe.set_property("mute", bool(m))
+
+    def has_video(self):
+        try:
+            return self.pipe.get_property("n-video") > 0
+        except Exception:       # noqa: BLE001
+            return False
+
+    def audio_tracks(self):
+        n = self.pipe.get_property("n-audio")
+        out = []
+        for i in range(n):
+            label = f"Track {i + 1}"
+            tags = self.pipe.emit("get-audio-tags", i)
+            if tags is not None:
+                ok, lang = tags.get_string("language-code")
+                if ok and lang:
+                    label += f" ({lang})"
+            out.append(label)
+        return out, self.pipe.get_property("current-audio")
+
+    def text_tracks(self):
+        n = self.pipe.get_property("n-text")
+        out = []
+        for i in range(n):
+            label = f"Subtitle {i + 1}"
+            tags = self.pipe.emit("get-text-tags", i)
+            if tags is not None:
+                ok, lang = tags.get_string("language-code")
+                if ok and lang:
+                    label += f" ({lang})"
+            out.append(label)
+        return out, self.pipe.get_property("current-text")
+
+    def set_audio_track(self, i):
+        self.pipe.set_property("current-audio", i)
+
+    def set_text_track(self, i):
+        self.pipe.set_property("current-text", i)
+
+    def text_enabled(self, on):
+        try:
+            flags = int(self.pipe.get_property("flags"))
+            flags = flags | 0x4 if on else flags & ~0x4
+            self.pipe.set_property("flags", flags)
+        except Exception:       # noqa: BLE001
+            pass
+
+    def add_subtitle(self, path):
+        """External subtitle file: the pipeline restarts at the same place."""
+        pos, was = self.position(), self.playing()
+        self.pipe.set_state(Gst.State.READY)
+        self.pipe.set_property("suburi", to_uri(path))
+        self.pipe.set_state(Gst.State.PAUSED)
+        self.pipe.get_state(3 * Gst.SECOND)
+        self.seek(pos)
+        if was:
+            self.play()
+
+    def set_eq(self, bands):
+        if self.eq is None:
+            return False
+        for i, db in enumerate(bands):
+            self.eq.set_property(f"band{i}", float(db))
+        return True
+
+
+class FileEngine:
+    """Fallback: GTK's own media player (play, pause, seek, volume only)."""
+    name = "gtk"
+    full = False
+
+    @staticmethod
+    def available():
+        return True
+
+    def __init__(self, on_eos, on_error, on_tags, on_state):
+        self.on_eos, self.on_error, self.on_state = on_eos, on_error, on_state
+        self.stream = None
+        self.paintable = None
+        self.vol, self.muted = 1.0, False
+        self.on_paintable = None
+
+    def load(self, uri, suburi=None):
+        if self.stream is not None:
+            self.stream.pause()
+        s = Gtk.MediaFile.new_for_file(Gio.File.new_for_uri(uri))
+        s.connect("notify::ended", lambda st, _p: st is self.stream and st.get_ended() and self.on_eos())
+        s.connect("notify::error", lambda st, _p: st is self.stream and st.get_error() is not None
+                  and self.on_error("This file cannot be played"))
+        s.connect("notify::playing", lambda *_a: self.on_state())
+        self.stream = s
+        self.paintable = s
+        if self.on_paintable:
+            self.on_paintable(s)
+        self.set_volume(self.vol)
+        s.set_muted(self.muted)
+        s.play()
+
+    def play(self):
+        self.stream and self.stream.play()
+
+    def pause(self):
+        self.stream and self.stream.pause()
+
+    def stop(self):
+        if self.stream is not None:
+            self.stream.pause()
+            self.stream.seek(0)
+
+    def playing(self):
+        return bool(self.stream and self.stream.get_playing())
+
+    def loaded(self):
+        return self.stream is not None
+
+    def position(self):
+        return self.stream.get_timestamp() / 1e6 if self.stream else 0.0
+
+    def duration(self):
+        return max(0, self.stream.get_duration()) / 1e6 if self.stream else 0.0
+
+    def seek(self, seconds):
+        self.stream and self.stream.seek(int(max(0, seconds) * 1e6))
+
+    def set_rate(self, rate):
+        pass
+
+    def set_volume(self, v):
+        self.vol = min(1.0, v)
+        self.stream and self.stream.set_volume(self.vol)
+
+    def set_mute(self, m):
+        self.muted = bool(m)
+        self.stream and self.stream.set_muted(self.muted)
+
+    def has_video(self):
+        return bool(self.stream and self.stream.has_video())
+
+    def audio_tracks(self):
+        return [], 0
+
+    def text_tracks(self):
+        return [], -1
+
+    def set_audio_track(self, i):
+        pass
+
+    def set_text_track(self, i):
+        pass
+
+    def text_enabled(self, on):
+        pass
+
+    def add_subtitle(self, path):
+        pass
+
+    def set_eq(self, bands):
+        return False
+
+
+# ------------------------------------------------------------------ window
 class MediaWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Media")
-        self.set_default_size(xlin_ui.scaled(900), xlin_ui.scaled(560))
+        self.set_default_size(xlin_ui.scaled(1000), xlin_ui.scaled(620))
         self.add_css_class("xlin-tools")
         xlin_ui.titlebar(self, "Media")
-        self.playlist = []
-        self.index = -1
-        self.stream = None
+        self.playlist, self.index = [], -1
+        self.repeat = "off"           # off | all | one
+        self.shuffle = False
+        self.muted = False
+        self.volume = 1.0
+        self.seeking = False
+        self.fs = False
+        self.idle_id = 0
+        self.tags = {}
+        self.titles = {}
 
-        root = Gtk.Box(spacing=12)
+        engine = GstEngine if GstEngine.available() else FileEngine
+        try:
+            self.engine = engine(self.on_eos, self.on_error, self.on_tags, self.on_state)
+        except Exception:       # noqa: BLE001
+            log("engine start failed:\n" + traceback.format_exc())
+            self.engine = FileEngine(self.on_eos, self.on_error, self.on_tags, self.on_state)
+        if isinstance(self.engine, FileEngine):
+            self.engine.on_paintable = lambda p: self.picture.set_paintable(p)
+
+        self.root = Gtk.Box(spacing=12)
         for m in ("top", "bottom", "start", "end"):
-            getattr(root, f"set_margin_{m}")(14)
-        self.set_child(root)
+            getattr(self.root, f"set_margin_{m}")(14)
+        self.set_child(self.root)
 
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)
-        self.video = Gtk.Video(vexpand=True, hexpand=True)
-        self.video.set_autoplay(True)
-        left.append(self.video)
-        self.now = Gtk.Label(label="Open a song or video to start", xalign=0)
+        # ---- left: picture, info, controls
+        self.left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, hexpand=True)
+        self.picture = Gtk.Picture(vexpand=True, hexpand=True)
+        self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self.picture.set_can_shrink(True)
+        if self.engine.paintable is not None:
+            self.picture.set_paintable(self.engine.paintable)
+        self.cover = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, vexpand=True, hexpand=True,
+                             valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        note = Gtk.Label(label="♪")
+        note.add_css_class("power-big")
+        self.cover.append(note)
+        self.big_title = Gtk.Label(label="Open a song or video to start")
+        self.big_title.add_css_class("tool-title")
+        self.big_title.set_wrap(True)
+        self.big_title.set_justify(Gtk.Justification.CENTER)
+        self.cover.append(self.big_title)
+        self.big_sub = Gtk.Label(label="Drop files here, or use Open files")
+        self.big_sub.add_css_class("tools-sub")
+        self.cover.append(self.big_sub)
+        self.stack = Gtk.Stack()
+        self.stack.set_vexpand(True)
+        self.stack.add_named(self.cover, "audio")
+        self.stack.add_named(self.picture, "video")
+        self.stack.set_visible_child_name("audio")
+        self.left.append(self.stack)
+
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda _g, n, _x, _y: n == 2 and self.toggle_fullscreen())
+        self.stack.add_controller(click)
+
+        self.now = Gtk.Label(label="", xalign=0)
         self.now.add_css_class("tool-title")
         self.now.set_ellipsize(Pango.EllipsizeMode.END)
-        left.append(self.now)
+        self.left.append(self.now)
         self.msg = Gtk.Label(label="", xalign=0)
         self.msg.add_css_class("tools-sub")
-        left.append(self.msg)
-        root.append(left)
+        self.msg.set_wrap(True)
+        self.left.append(self.msg)
 
-        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        side.set_size_request(xlin_ui.scaled(250), -1)
+        self.controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        seek = Gtk.Box(spacing=8)
+        self.pos_lab = Gtk.Label(label="0:00", width_chars=6)
+        self.pos_lab.add_css_class("tools-sub")
+        self.dur_lab = Gtk.Label(label="0:00", width_chars=6)
+        self.dur_lab.add_css_class("tools-sub")
+        self.seek_bar = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.seek_bar.set_hexpand(True)
+        self.seek_bar.set_draw_value(False)
+        self.seek_bar.connect("change-value", self.on_seek)
+        seek.append(self.pos_lab)
+        seek.append(self.seek_bar)
+        seek.append(self.dur_lab)
+        self.controls.append(seek)
+
+        row = Gtk.Box(spacing=6)
+        self.btn_prev = self.tool_btn("⏮", "Previous (P)", lambda: self.step(-1))
+        self.btn_play = self.tool_btn("▶", "Play / pause (Space)", self.toggle_play)
+        self.btn_stop = self.tool_btn("⏹", "Stop (S)", self.stop)
+        self.btn_next = self.tool_btn("⏭", "Next (N)", lambda: self.step(1))
+        for b in (self.btn_prev, self.btn_play, self.btn_stop, self.btn_next):
+            row.append(b)
+        self.btn_shuffle = Gtk.ToggleButton(label="Shuffle")
+        self.btn_shuffle.connect("toggled", lambda b: setattr(self, "shuffle", b.get_active()))
+        row.append(self.btn_shuffle)
+        self.btn_repeat = Gtk.Button(label="Repeat: off")
+        self.btn_repeat.connect("clicked", lambda _b: self.cycle_repeat())
+        row.append(self.btn_repeat)
+        row.append(Gtk.Box(hexpand=True))
+
+        self.speed = Gtk.DropDown.new_from_strings([f"{s:g}x" for s in SPEEDS])
+        self.speed.set_selected(SPEEDS.index(1.0))
+        self.speed.set_tooltip_text("Playback speed ( [ slower, ] faster )")
+        self.speed.connect("notify::selected", lambda d, _p: self.engine.set_rate(SPEEDS[d.get_selected()]))
+        row.append(self.speed)
+        row.append(self.menu_button("Subtitles", self.fill_subs))
+        row.append(self.menu_button("Audio", self.fill_audio))
+        row.append(self.menu_button("Equalizer", self.fill_eq))
+        row.append(self.menu_button("Info", self.fill_info))
+
+        self.btn_mute = self.tool_btn("🔊", "Mute (M)", self.toggle_mute)
+        row.append(self.btn_mute)
+        self.vol_bar = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 150, 1)
+        self.vol_bar.set_size_request(xlin_ui.scaled(110), -1)
+        self.vol_bar.set_draw_value(False)
+        self.vol_bar.set_tooltip_text("Volume (Up / Down). Above 100% is louder than the original")
+        try:
+            start = float(read_state("media_volume", "100"))
+        except ValueError:
+            start = 100.0
+        self.vol_bar.set_value(max(0, min(150, start)))
+        self.volume = self.vol_bar.get_value() / 100
+        self.vol_bar.connect("value-changed", self.on_volume)
+        row.append(self.vol_bar)
+        self.btn_fs = self.tool_btn("⛶", "Full screen (F)", self.toggle_fullscreen)
+        row.append(self.btn_fs)
+        self.btn_list = Gtk.ToggleButton(label="List")
+        self.btn_list.set_active(True)
+        self.btn_list.set_tooltip_text("Show or hide the playlist (L)")
+        self.btn_list.connect("toggled", lambda b: self.side.set_visible(b.get_active()))
+        row.append(self.btn_list)
+        self.controls.append(row)
+        self.left.append(self.controls)
+        self.root.append(self.left)
+
+        # ---- right: playlist
+        self.side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.side.set_size_request(xlin_ui.scaled(270), -1)
         bar = Gtk.Box(spacing=6)
         for label, fn in (("Open files", self.pick_files), ("Open folder", self.pick_folder)):
             b = Gtk.Button(label=label, hexpand=True)
             b.connect("clicked", lambda _b, f=fn: f())
             bar.append(b)
-        side.append(bar)
+        self.side.append(bar)
+        self.url_btn = self.menu_button("Open a web address", self.fill_url)
+        self.side.append(self.url_btn)
         self.list = Gtk.ListBox()
         self.list.add_css_class("fm-list")
         self.list.connect("row-activated", lambda _l, row: self.play(row.idx))
         sc = Gtk.ScrolledWindow(vexpand=True)
         sc.set_child(self.list)
-        side.append(sc)
+        self.side.append(sc)
         nav = Gtk.Box(spacing=6, homogeneous=True)
-        for glyph, tip, fn in (("⏮", "Previous", lambda: self.step(-1)), ("⏭", "Next", lambda: self.step(1)),
+        for label, tip, fn in (("Remove", "Remove the selected item", self.remove_selected),
                                ("Clear", "Clear the list", self.clear)):
-            b = Gtk.Button(label=glyph)
+            b = Gtk.Button(label=label)
             b.set_tooltip_text(tip)
             b.connect("clicked", lambda _b, f=fn: f())
             nav.append(b)
-        side.append(nav)
-        root.append(side)
+        self.side.append(nav)
+        self.root.append(self.side)
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", lambda *_a: self.wake_controls())
+        self.add_controller(motion)
         drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        drop.connect("drop", lambda _t, fl, _x, _y: (self.add([f.get_path() for f in fl.get_files()], True), True)[1])
+        drop.connect("drop", lambda _t, fl, _x, _y: (self.add([f.get_path() for f in fl.get_files() if f.get_path()], True), True)[1])
         self.add_controller(drop)
+        self.engine.set_volume(self.volume)
+        GLib.timeout_add(250, self.tick)
+        if isinstance(self.engine, FileEngine):
+            why = "Using the basic player"
+            self.msg.set_text(why + (f" ({GST_ERROR})" if GST_ERROR else ": install gst-plugin-gtk4 for every feature (xlin fix)"))
+
+    # ---- widgets
+    def tool_btn(self, glyph, tip, fn):
+        b = Gtk.Button(label=glyph)
+        b.set_tooltip_text(tip)
+        b.connect("clicked", lambda _b: fn())
+        return b
+
+    def menu_button(self, label, filler):
+        """A button that opens a small popover; `filler(box)` fills it each time it opens."""
+        pop = Gtk.Popover()
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(inner, f"set_margin_{m}")(8)
+        pop.set_child(inner)
+
+        def rebuild(*_a):
+            while (c := inner.get_first_child()) is not None:
+                inner.remove(c)
+            try:
+                filler(inner, pop)
+            except Exception:       # noqa: BLE001
+                log(traceback.format_exc())
+        pop.connect("show", rebuild)
+        b = Gtk.MenuButton(label=label)
+        b.set_popover(pop)
+        return b
+
+    def item(self, box, label, fn, pop=None, active=False):
+        b = Gtk.Button(label=("✓  " if active else "     ") + label)
+        b.connect("clicked", lambda _b: (fn(), pop.popdown() if pop else None))
+        box.append(b)
+
+    def fill_subs(self, box, pop):
+        tracks, cur = self.engine.text_tracks()
+        if not self.engine.full:
+            box.append(Gtk.Label(label="Needs the full player (gst-plugin-gtk4)"))
+            return
+        self.item(box, "Off", lambda: self.engine.text_enabled(False), pop, active=(cur < 0))
+        for i, t in enumerate(tracks):
+            self.item(box, t, lambda i=i: (self.engine.text_enabled(True), self.engine.set_text_track(i)), pop, active=(i == cur))
+        self.item(box, "Open a subtitle file...", self.pick_subtitle, pop)
+
+    def fill_audio(self, box, pop):
+        tracks, cur = self.engine.audio_tracks()
+        if not tracks:
+            box.append(Gtk.Label(label="Only one audio track"))
+            return
+        for i, t in enumerate(tracks):
+            self.item(box, t, lambda i=i: self.engine.set_audio_track(i), pop, active=(i == cur))
+
+    def fill_eq(self, box, pop):
+        if not self.engine.full or getattr(self.engine, "eq", None) is None:
+            box.append(Gtk.Label(label="The equalizer needs gst-plugins-good"))
+            return
+        cur = read_state("media_eq", "Flat")
+        for name, bands in EQ_PRESETS:
+            self.item(box, name, lambda n=name, b=bands: (self.engine.set_eq(b), write_state("media_eq", n)), pop,
+                      active=(name == cur))
+
+    def fill_info(self, box, pop):
+        if not self.playlist or self.index < 0:
+            box.append(Gtk.Label(label="Nothing is playing"))
+            return
+        p = self.playlist[self.index]
+        lines = [("File", os.path.basename(p) if "://" not in p else p)]
+        for key, label in (("title", "Title"), ("artist", "Artist"), ("album", "Album"),
+                           ("genre", "Genre"), ("audio-codec", "Audio"), ("video-codec", "Video")):
+            if self.tags.get(key):
+                lines.append((label, self.tags[key]))
+        d = self.engine.duration()
+        if d:
+            lines.append(("Length", clock(d)))
+        for k, v in lines:
+            lab = Gtk.Label(label=f"{k}:  {v}", xalign=0)
+            lab.set_selectable(True)
+            lab.set_max_width_chars(48)
+            lab.set_wrap(True)
+            box.append(lab)
+
+    def fill_url(self, box, pop):
+        entry = Gtk.Entry(placeholder_text="https://... or a stream address")
+        entry.set_width_chars(34)
+
+        def go(*_a):
+            text = entry.get_text().strip()
+            if "://" in text:
+                self.add([text], True)
+                pop.popdown()
+        entry.connect("activate", go)
+        box.append(entry)
+        b = Gtk.Button(label="Play")
+        b.connect("clicked", go)
+        box.append(b)
 
     # ---- playlist
+    def label_for(self, p):
+        return self.titles.get(p) or (os.path.splitext(os.path.basename(p))[0] if "://" not in p else p)
+
     def add(self, paths, play_first=False):
-        files = media_files(paths)
-        if not files:
-            self.msg.set_text("No music or video found")
+        try:
+            files = media_files(paths)
+            if not files:
+                self.msg.set_text("No music or video found")
+                return
+            start = len(self.playlist)
+            for p in files:
+                row = Gtk.ListBoxRow()
+                lab = Gtk.Label(label=self.label_for(p), xalign=0)
+                lab.set_ellipsize(Pango.EllipsizeMode.END)
+                lab.set_margin_top(6)
+                lab.set_margin_bottom(6)
+                lab.set_margin_start(8)
+                row.set_child(lab)
+                row.idx = len(self.playlist)
+                self.playlist.append(p)
+                self.list.append(row)
+            if play_first or self.index < 0:
+                self.play(start)
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+            self.msg.set_text("Could not open that file. See ~/.cache/xlin/media.log")
+
+    def reindex(self):
+        i = 0
+        row = self.list.get_first_child()
+        while row is not None:
+            row.idx = i
+            i += 1
+            row = row.get_next_sibling()
+
+    def remove_selected(self):
+        row = self.list.get_selected_row()
+        if row is None:
             return
-        start = len(self.playlist)
-        for p in files:
-            row = Gtk.ListBoxRow()
-            lab = Gtk.Label(label=os.path.splitext(os.path.basename(p))[0], xalign=0)
-            lab.set_ellipsize(Pango.EllipsizeMode.END)
-            lab.set_margin_top(6)
-            lab.set_margin_bottom(6)
-            lab.set_margin_start(8)
-            row.set_child(lab)
-            row.idx = len(self.playlist)
-            self.playlist.append(p)
-            self.list.append(row)
-        if play_first or self.index < 0:
-            self.play(start)
+        i = row.idx
+        self.list.remove(row)
+        del self.playlist[i]
+        self.reindex()
+        if i == self.index:
+            self.engine.stop()
+            self.index = -1
+            self.show_idle()
+        elif i < self.index:
+            self.index -= 1
 
     def clear(self):
-        self.video.set_media_stream(None)
-        self.stream, self.playlist, self.index = None, [], -1
+        self.engine.stop()
+        self.playlist, self.index = [], -1
         while (c := self.list.get_first_child()) is not None:
             self.list.remove(c)
-        self.now.set_text("Open a song or video to start")
+        self.show_idle()
+
+    def show_idle(self):
+        self.stack.set_visible_child_name("audio")
+        self.big_title.set_text("Open a song or video to start")
+        self.big_sub.set_text("Drop files here, or use Open files")
+        self.now.set_text("")
         self.msg.set_text("")
+        self.btn_play.set_label("▶")
+        self.seek_bar.set_value(0)
+        self.pos_lab.set_text("0:00")
+        self.dur_lab.set_text("0:00")
 
     def play(self, idx):
         if not 0 <= idx < len(self.playlist):
             return
         self.index = idx
+        self.tags = {}
         row = self.list.get_row_at_index(idx)
         if row is not None:
             self.list.select_row(row)
         path = self.playlist[idx]
-        self.now.set_text(os.path.splitext(os.path.basename(path))[0])
+        name = self.label_for(path)
+        self.now.set_text(name)
+        self.big_title.set_text(name)
+        self.big_sub.set_text("")
         self.msg.set_text("")
-        stream = Gtk.MediaFile.new_for_file(Gio.File.new_for_path(path))
-        stream.connect("notify::ended", self.on_ended)
-        stream.connect("notify::error", self.on_error)
-        self.stream = stream
-        self.video.set_media_stream(stream)
-        stream.play()
+        self.set_title(name + " - Media")
+        sub = None
+        if "://" not in path:
+            base = os.path.splitext(path)[0]
+            for ext in SUB_EXTS:
+                if os.path.exists(base + ext):
+                    sub = to_uri(base + ext)
+                    break
+        try:
+            self.engine.load(to_uri(path), sub)
+            self.engine.set_volume(self.volume)
+            self.engine.set_mute(self.muted)
+            self.speed.set_selected(SPEEDS.index(1.0))
+            self.btn_play.set_label("⏸")
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+            self.msg.set_text("Cannot play this file. " + HINT)
 
     def step(self, d):
-        if self.playlist:
+        if not self.playlist:
+            return
+        if self.shuffle and len(self.playlist) > 1 and d > 0:
+            choices = [i for i in range(len(self.playlist)) if i != self.index]
+            self.play(random.choice(choices))
+        else:
             self.play((self.index + d) % len(self.playlist))
 
-    def on_ended(self, stream, _p):
-        if stream is self.stream and stream.get_ended() and self.index + 1 < len(self.playlist):
-            self.play(self.index + 1)
-
-    def on_error(self, stream, _p):
-        err = stream.get_error()
-        if err is not None:
-            self.msg.set_text("Cannot play this file. Install the codecs: sudo pacman -S gst-plugins-good gst-libav")
-
-    def on_key(self, _c, keyval, _code, _state):
-        if keyval == Gdk.KEY_space and self.stream is not None:
-            (self.stream.pause if self.stream.get_playing() else self.stream.play)()
-            return True
-        if keyval == Gdk.KEY_Right:
+    # ---- engine callbacks
+    def on_eos(self):
+        if self.repeat == "one":
+            self.play(self.index)
+        elif self.shuffle and len(self.playlist) > 1:
             self.step(1)
-            return True
-        if keyval == Gdk.KEY_Left:
-            self.step(-1)
-            return True
+        elif self.index + 1 < len(self.playlist):
+            self.play(self.index + 1)
+        elif self.repeat == "all" and self.playlist:
+            self.play(0)
+        else:
+            self.engine.pause()
+            self.engine.seek(0)
+            self.btn_play.set_label("▶")
+
+    def on_error(self, text):
+        self.msg.set_text(f"Cannot play this file ({text}). {HINT}")
+        self.btn_play.set_label("▶")
+
+    def on_tags(self, taglist):
+        try:
+            for key in ("title", "artist", "album", "genre", "audio-codec", "video-codec"):
+                ok, val = taglist.get_string(key)
+                if ok and val:
+                    self.tags[key] = val
+            if self.tags.get("title") and 0 <= self.index < len(self.playlist):
+                p = self.playlist[self.index]
+                if self.tags.get("artist"):
+                    head = f"{self.tags['artist']} - {self.tags['title']}"
+                else:
+                    head = self.tags["title"]
+                self.titles[p] = head
+                self.now.set_text(head)
+                self.big_title.set_text(self.tags["title"])
+                self.big_sub.set_text(" - ".join(x for x in (self.tags.get("artist"), self.tags.get("album")) if x))
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+    def on_state(self):
+        self.btn_play.set_label("⏸" if self.engine.playing() else "▶")
+
+    def tick(self):
+        try:
+            if self.index >= 0 and self.engine.loaded():
+                dur = self.engine.duration()
+                pos = self.engine.position()
+                if not self.seeking:
+                    self.seek_bar.set_range(0, max(dur, 1))
+                    self.seek_bar.set_value(pos)
+                    self.pos_lab.set_text(clock(pos))
+                self.dur_lab.set_text(clock(dur))
+                self.stack.set_visible_child_name("video" if self.engine.has_video() else "audio")
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+        return True
+
+    # ---- controls
+    def toggle_play(self):
+        if self.index < 0:
+            if self.playlist:
+                self.play(0)
+            else:
+                self.pick_files()
+            return
+        if self.engine.playing():
+            self.engine.pause()
+        else:
+            self.engine.play()
+        self.on_state()
+
+    def stop(self):
+        self.engine.stop()
+        self.btn_play.set_label("▶")
+        self.seek_bar.set_value(0)
+        self.pos_lab.set_text("0:00")
+        if self.index >= 0:
+            self.stack.set_visible_child_name("audio")
+
+    def on_seek(self, _scale, _scroll, value):
+        self.seeking = True
+        self.engine.seek(value)
+        self.pos_lab.set_text(clock(value))
+        GLib.timeout_add(300, lambda: (setattr(self, "seeking", False), False)[1])
         return False
+
+    def jump(self, secs):
+        if self.index >= 0:
+            target = self.engine.position() + secs
+            dur = self.engine.duration()
+            self.engine.seek(min(target, dur - 0.5) if dur else target)
+
+    def on_volume(self, scale):
+        self.volume = scale.get_value() / 100
+        self.engine.set_volume(self.volume)
+        write_state("media_volume", int(scale.get_value()))
+        if self.muted and self.volume > 0:
+            self.toggle_mute()
+
+    def toggle_mute(self):
+        self.muted = not self.muted
+        self.engine.set_mute(self.muted)
+        self.btn_mute.set_label("🔇" if self.muted else "🔊")
+
+    def cycle_repeat(self):
+        self.repeat = {"off": "all", "all": "one", "one": "off"}[self.repeat]
+        self.btn_repeat.set_label({"off": "Repeat: off", "all": "Repeat: all", "one": "Repeat: one"}[self.repeat])
+
+    def change_speed(self, d):
+        i = max(0, min(len(SPEEDS) - 1, self.speed.get_selected() + d))
+        self.speed.set_selected(i)
+
+    # ---- full screen
+    def toggle_fullscreen(self):
+        if self.fs:
+            self.unfullscreen()
+        else:
+            self.fullscreen()
+        self.fs = not self.fs
+        self.side.set_visible(not self.fs and self.btn_list.get_active())
+        for m in ("top", "bottom", "start", "end"):
+            getattr(self.root, f"set_margin_{m}")(0 if self.fs else 14)
+        self.btn_fs.set_label("⮌" if self.fs else "⛶")
+        self.wake_controls()
+
+    def wake_controls(self):
+        """In full screen the controls and the mouse pointer hide after 3 seconds without movement."""
+        self.controls.set_visible(True)
+        self.now.set_visible(True)
+        self.set_cursor(None)
+        if self.idle_id:
+            GLib.source_remove(self.idle_id)
+            self.idle_id = 0
+        if self.fs:
+            self.idle_id = GLib.timeout_add(3000, self.hide_controls)
+
+    def hide_controls(self):
+        self.idle_id = 0
+        if self.fs and self.engine.playing():
+            self.controls.set_visible(False)
+            self.now.set_visible(False)
+            self.set_cursor_from_name("none")
+        return False
+
+    def on_key(self, _c, keyval, _code, state):
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        entry = self.get_focus()
+        if isinstance(entry, Gtk.Text):         # typing a web address: keys belong to the entry
+            return False
+        if keyval == Gdk.KEY_space:
+            self.toggle_play()
+        elif keyval == Gdk.KEY_Right:
+            self.jump(60 if shift else 10)
+        elif keyval == Gdk.KEY_Left:
+            self.jump(-60 if shift else -10)
+        elif keyval == Gdk.KEY_Up:
+            self.vol_bar.set_value(min(150, self.vol_bar.get_value() + 5))
+        elif keyval == Gdk.KEY_Down:
+            self.vol_bar.set_value(max(0, self.vol_bar.get_value() - 5))
+        elif keyval in (Gdk.KEY_f, Gdk.KEY_F, Gdk.KEY_F11):
+            self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_Escape and self.fs:
+            self.toggle_fullscreen()
+        elif keyval in (Gdk.KEY_m, Gdk.KEY_M):
+            self.toggle_mute()
+        elif keyval in (Gdk.KEY_n, Gdk.KEY_N):
+            self.step(1)
+        elif keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            self.step(-1)
+        elif keyval in (Gdk.KEY_s, Gdk.KEY_S):
+            self.stop()
+        elif keyval == Gdk.KEY_bracketright:
+            self.change_speed(1)
+        elif keyval == Gdk.KEY_bracketleft:
+            self.change_speed(-1)
+        elif keyval in (Gdk.KEY_l, Gdk.KEY_L):
+            self.btn_list.set_active(not self.btn_list.get_active())
+        else:
+            return False
+        self.wake_controls()
+        return True
 
     # ---- choosers
     def pick_files(self):
         dlg = Gtk.FileDialog(title="Open music or video")
+        flt = Gtk.FileFilter()
+        flt.set_name("Music and video")
+        for mt in ("audio/*", "video/*"):
+            flt.add_mime_type(mt)
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
 
         def done(d, res):
             try:
@@ -185,6 +955,17 @@ class MediaWindow(Gtk.ApplicationWindow):
             self.add([f.get_path()], True)
         dlg.select_folder(self, None, done)
 
+    def pick_subtitle(self):
+        dlg = Gtk.FileDialog(title="Open a subtitle file")
+
+        def done(d, res):
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return
+            self.engine.add_subtitle(f.get_path())
+        dlg.open(self, None, done)
+
 
 class MediaApp(Gtk.Application):
     def __init__(self):
@@ -193,7 +974,7 @@ class MediaApp(Gtk.Application):
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
-        xlin_ui.live_css()      # restyle at once when the theme or font changes (warm apps too)
+        xlin_ui.live_css()      # restyle at once when the theme or font changes
         try:
             with open(CSS_FILE, "rb") as f:
                 data = f.read()
@@ -201,7 +982,7 @@ class MediaApp(Gtk.Application):
             prov.load_from_data(data)
             Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
                                                       Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        except Exception:
+        except Exception:       # noqa: BLE001
             pass
 
     def window(self):
@@ -210,12 +991,20 @@ class MediaApp(Gtk.Application):
         return self.win
 
     def do_activate(self):
-        self.window().present()
+        try:
+            self.window().present()
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
 
     def do_open(self, files, _n, _hint):
-        win = self.window()
-        win.present()
-        win.add([f.get_path() for f in files if f.get_path()], True)
+        try:
+            win = self.window()
+            win.present()
+            # start after the window is on screen: the video output needs a realised window
+            paths = [f.get_path() or f.get_uri() for f in files]
+            GLib.timeout_add(250, lambda: (win.add(paths, True), False)[1])
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
 
 
 if __name__ == "__main__":

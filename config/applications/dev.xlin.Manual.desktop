@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Xlin-soft Manual
+GenericName=Manual
+Comment=A guide to Xlin-soft: basics, apps, shortcuts and repairs
+Exec=xlin manual
+Icon=xlin-manual
+Terminal=false
+Categories=Utility;Documentation;
+StartupWMClass=dev.xlin.Manual

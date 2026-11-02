@@ -41,6 +41,8 @@ jobs:
         run: bash tests/test-reset.sh
       - name: Fix
         run: bash tests/test-fix.sh
+      - name: Media, Manual, Welcome
+        run: bash tests/test-media.sh
       - name: Wallpapers
         run: bash tests/test-wallpapers.sh
       - name: Menus and manual

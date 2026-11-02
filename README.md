@@ -58,7 +58,7 @@ you have `paru` or `yay`).
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
 | Settings        | General (sound, brightness, battery, notifications, sleep, mouse and scrolling), Connectivity, Desktop (status bar, Run Bar, Launcher pins, icons, widgets, wallpapers), Apps and Tools, Personalization (theme, accent, fonts, text size, animations, transparency), About (update, restart, reset, version) |
 | Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+T) |
-| Apps            | Terminal with tabs, Files, SysMon, Media player, Store (pacman and AUR) and SysDeb (checks, logs, repairs) |
+| Apps            | Terminal with tabs, Files, SysMon, Media player (playlist, subtitles, speed, equalizer, full screen), Store (pacman and AUR) and SysDeb (checks, logs, repairs) |
 | Windows         | Every app has hide, fullscreen and close buttons, can be resized by its edge or Super+right-drag, and fills the screen on a double-click of its title bar. Super+H brings hidden windows back, Super+Shift+D shows the desktop |
 | Look and feel   | Light and dark, accent colours, system font and size, Xlin-soft cursor and icons, eight wallpapers (Super+W), animations on or off |
 | Daily basics    | Screenshots, clipboard history, night light, quick notes, volume and brightness pop-ups |
