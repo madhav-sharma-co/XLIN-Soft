@@ -41,6 +41,8 @@ jobs:
         run: bash tests/test-reset.sh
       - name: Fix
         run: bash tests/test-fix.sh
+      - name: Install finish (no hangs)
+        run: bash tests/test-finish.sh
       - name: Smoke-run every app (stubbed GTK)
         run: bash tests/test-smoke.sh
       - name: Xedit and Xview

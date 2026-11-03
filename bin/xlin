@@ -471,10 +471,10 @@ apply_cursor() {
   [[ "$theme" == dark ]] && name="XLIN-Dark" || name="XLIN"
   size="$(cat "$STATE/cursor_size" 2>/dev/null || echo 24)"
   [[ -d "$HOME/.local/share/icons/$name/cursors" ]] || return 0
-  have hyprctl && hyprctl setcursor "$name" "$size" >/dev/null 2>&1 || true
+  have hyprctl && timeout 5 hyprctl setcursor "$name" "$size" >/dev/null 2>&1 || true
   if have gsettings; then
-    gsettings set org.gnome.desktop.interface cursor-theme "$name" 2>/dev/null || true
-    gsettings set org.gnome.desktop.interface cursor-size "$size" 2>/dev/null || true
+    timeout 5 gsettings set org.gnome.desktop.interface cursor-theme "$name" 2>/dev/null || true
+    timeout 5 gsettings set org.gnome.desktop.interface cursor-size "$size" 2>/dev/null || true
   fi
 }
 
@@ -486,21 +486,36 @@ cmd_cursor() {
   esac
 }
 
+# wait_bounded <seconds> <pid>...: wait for background jobs, but never longer than <seconds>; stragglers are stopped.
+# (a slow gsettings, wallpaper daemon or waybar must never leave an install or a theme change hanging)
+wait_bounded() {
+  local limit="$1" p alive i; shift
+  for ((i = 0; i < limit * 10; i++)); do
+    alive=0
+    for p in "$@"; do kill -0 "$p" 2>/dev/null && alive=1; done
+    ((alive)) || break
+    sleep 0.1
+  done
+  for p in "$@"; do kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; done
+  wait "$@" 2>/dev/null
+  return 0
+}
+
 reload_all() {
   local pids=()
   pkill -SIGUSR2 waybar 2>/dev/null &
   pids+=($!)
-  if have swaync-client; then swaync-client -rs >/dev/null 2>&1 & pids+=($!); fi
+  if have swaync-client; then timeout 8 swaync-client -rs >/dev/null 2>&1 & pids+=($!); fi
   pkill -USR1 -x kitty 2>/dev/null &      # open kitty windows reload their colours
   pids+=($!)
-  if have hyprctl; then hyprctl reload >/dev/null 2>&1 & pids+=($!); fi
+  if have hyprctl; then timeout 8 hyprctl reload >/dev/null 2>&1 & pids+=($!); fi
   # the Run Bar reads its css at start, so restart it if it is running (no fixed wait)
   # note: pgrep -x cannot match names over 15 characters, so the dock is matched with -f
   if pgrep -f '^nwg-dock-hyprland' >/dev/null; then
     ( dock_stop; dock_check ) &
     pids+=($!)
   fi
-  wait "${pids[@]}" 2>/dev/null
+  wait_bounded 12 "${pids[@]}"
   return 0
 }
 
@@ -509,8 +524,8 @@ apply_gtk_theme() {
   local dark=0 name=Adwaita f
   [[ "$1" == dark ]] && { dark=1; name=Adwaita-dark; }
   if have gsettings; then
-    gsettings set org.gnome.desktop.interface color-scheme "$C_GTK_SCHEME" 2>/dev/null || true
-    gsettings set org.gnome.desktop.interface gtk-theme "$name" 2>/dev/null || true
+    timeout 5 gsettings set org.gnome.desktop.interface color-scheme "$C_GTK_SCHEME" 2>/dev/null || true
+    timeout 5 gsettings set org.gnome.desktop.interface gtk-theme "$name" 2>/dev/null || true
   fi
   for f in "$HOME/.config/gtk-3.0/settings.ini" "$HOME/.config/gtk-4.0/settings.ini"; do
     mkdir -p "$(dirname "$f")"
@@ -547,7 +562,7 @@ cmd_theme() {
     cmd_wallpaper restore >/dev/null &
     pids+=($!)
   fi
-  wait "${pids[@]}" 2>/dev/null
+  wait_bounded 20 "${pids[@]}"
   echo "theme: $want"
 }
 
@@ -566,20 +581,20 @@ wall_set() {
   case "$be" in
     awww|swww)
       # the daemon may still be starting (first login after install): start it and wait for it
-      if ! "$be" query >/dev/null 2>&1; then
+      if ! timeout 3 "$be" query >/dev/null 2>&1; then
         pgrep -x "${be}-daemon" >/dev/null || { setsid "${be}-daemon" >/dev/null 2>&1 < /dev/null & }
-        for i in 1 2 3 4 5 6 7 8 9 10; do "$be" query >/dev/null 2>&1 && break; sleep 0.4; done
+        for i in 1 2 3 4 5 6 7 8 9 10; do timeout 3 "$be" query >/dev/null 2>&1 && break; sleep 0.4; done
       fi
-      out="$("$be" img "$file" --transition-type grow --transition-duration 1.2 --transition-fps 60 2>&1)" \
+      out="$(timeout 20 "$be" img "$file" --transition-type grow --transition-duration 1.2 --transition-fps 60 2>&1)" \
         || { echo "Could not set the wallpaper with $be: $out" >&2; return 1; }
       ;;
     hyprpaper)
       pgrep -x hyprpaper >/dev/null || { setsid hyprpaper >/dev/null 2>&1 < /dev/null & sleep 1; }
       # newer hyprpaper (0.8+) takes "monitor,path,mode"; older ones need preload first
-      out="$(hyprctl hyprpaper wallpaper ",$file,cover" 2>&1)"
+      out="$(timeout 8 hyprctl hyprpaper wallpaper ",$file,cover" 2>&1)"
       if [[ "$out" != *ok* ]]; then
-        hyprctl hyprpaper preload "$file" >/dev/null 2>&1
-        out="$(hyprctl hyprpaper wallpaper ",$file" 2>&1)"
+        timeout 8 hyprctl hyprpaper preload "$file" >/dev/null 2>&1
+        out="$(timeout 8 hyprctl hyprpaper wallpaper ",$file" 2>&1)"
         [[ "$out" == *ok* ]] || { echo "Could not set the wallpaper with hyprpaper: $out" >&2; return 1; }
       fi
       ;;
@@ -2127,7 +2142,7 @@ start_extras() {
   [[ -f "$STATE/idle_off" ]] || idle_start || true
   [[ -s "$STATE/nightlight" ]] && ! owned_pid hyprsunset >/dev/null && have hyprsunset && cmd_nightlight "$(cat "$STATE/nightlight")" >/dev/null
   # password prompts for graphical apps (Settings, mounting drives, etc.)
-  have systemctl && systemctl --user start hyprpolkitagent.service 2>/dev/null || true
+  have systemctl && timeout 10 systemctl --user start hyprpolkitagent.service 2>/dev/null || true
 }
 
 # Hide bar parts this computer does not have (battery on a desktop). Safe to run any time.

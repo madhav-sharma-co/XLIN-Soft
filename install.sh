@@ -61,14 +61,11 @@ done
 # ------------------------------------------------------------------- theme
 say "Applying light theme"
 export XLIN_HOME
-/usr/local/bin/xlin theme light || true
-/usr/local/bin/xlin terminal || true
-/usr/local/bin/xlin adapt || true
+# each step has a time limit and no keyboard input, so a slow or stuck helper can never hang the installer
+timeout 120 /usr/local/bin/xlin theme light </dev/null || echo "(the theme step did not finish: it is applied again by 'xlin restart' below)"
+timeout 60 /usr/local/bin/xlin terminal </dev/null || true
+timeout 30 /usr/local/bin/xlin adapt </dev/null || true
 
-if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-  say "Starting Xlin-soft now"
-  hyprctl reload >/dev/null 2>&1 || true
-  /usr/local/bin/xlin restart || true   # restarts the bar so old configs are replaced
-fi
+xlin_finish
 
 say "Done. Run 'xlin doctor' to check everything. If something is missing, run 'xlin start'."

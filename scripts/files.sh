@@ -22,3 +22,32 @@ xlin_install_files() {
   cp -a "$SRC/assets/cursors/." "$HOME/.local/share/icons/"
   return 0
 }
+
+
+# xlin_find_hyprland: make `hyprctl` and `xlin restart` work from any terminal (a text console, an ssh session or a terminal
+# opened before Hyprland): find the running Hyprland and use it. Returns 0 when one is running.
+xlin_find_hyprland() {
+  [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && return 0
+  local run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" d sock
+  [[ -d "$run/hypr" ]] || return 1
+  d="$(ls -1dt "$run"/hypr/*/ 2>/dev/null | head -n1)"
+  [[ -n "$d" && -S "${d}.socket.sock" ]] || return 1
+  export XDG_RUNTIME_DIR="$run" HYPRLAND_INSTANCE_SIGNATURE="$(basename "$d")"
+  if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    sock="$(ls -1 "$run"/wayland-[0-9]* 2>/dev/null | grep -v '\.lock$' | head -n1)"
+    [[ -n "$sock" ]] && export WAYLAND_DISPLAY="$(basename "$sock")"
+  fi
+  return 0
+}
+
+# xlin_finish: the last step of install.sh and update.sh. Reloads Hyprland and restarts every Xlin-soft part, with a time
+# limit so nothing can hang the terminal.
+xlin_finish() {
+  if xlin_find_hyprland; then
+    printf '\033[1;34m==>\033[0m Starting Xlin-soft now (xlin restart)\n'
+    timeout 15 hyprctl reload >/dev/null 2>&1 || true
+    timeout 90 /usr/local/bin/xlin restart </dev/null || echo "(xlin restart did not finish: run 'xlin restart' in a new terminal)"
+  else
+    echo "Hyprland is not running here. Log in to your Hyprland session, then run: xlin restart"
+  fi
+}

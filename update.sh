@@ -58,14 +58,11 @@ xlin_install_files
 
 say "Applying theme and terminal"
 theme="$(cat "$XLIN_HOME/state/theme" 2>/dev/null || echo light)"
-/usr/local/bin/xlin theme "$theme" || true
-/usr/local/bin/xlin terminal || true
-/usr/local/bin/xlin adapt || true
+timeout 120 /usr/local/bin/xlin theme "$theme" </dev/null || true
+timeout 60 /usr/local/bin/xlin terminal </dev/null || true
+timeout 30 /usr/local/bin/xlin adapt </dev/null || true
 
-if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-  hyprctl reload >/dev/null 2>&1 || true
-  /usr/local/bin/xlin restart || true
-fi
+xlin_finish
 ver="$(grep -m1 '^XLIN_VERSION=' "$SRC/bin/xlin" | cut -d'"' -f2)"
 say "Done. Xlin-soft $ver is installed. Open a new terminal."
 # what is new in this version (the newest section of the changelog)
