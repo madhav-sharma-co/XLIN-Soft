@@ -1492,7 +1492,7 @@ restart_all() {
 
 cmd_reset() {
   # things that are running because of a choice: stop them first
-  cmd_nightlight off >/dev/null 2>&1 || true
+  ( cmd_nightlight off >/dev/null 2>&1 ) || true
   have swaync-client && swaync-client -df >/dev/null 2>&1 || true            # do not disturb off
   have powerprofilesctl && powerprofilesctl set balanced >/dev/null 2>&1 || true
   stop_owned hypridle 2>/dev/null || true
@@ -1500,24 +1500,24 @@ cmd_reset() {
   # fonts, animations, scrolling, bars, pins, sleep and lock times, welcome flag ... Only the install record stays.
   find "$STATE" -maxdepth 1 -type f ! -name source ! -name '.*' ! -name '*.pid' -delete 2>/dev/null
   rm -f "$XLIN_HOME/desktop.json"                                            # desktop icons, folders, widgets
-  pins_runbar_default; pins_launcher_default
-  cmd_defaults reset >/dev/null 2>&1 || true                                 # Xlin-soft Files, Media, Terminal
-  write_opacity 0.88 0.80 quiet >/dev/null 2>&1 || true                     # window transparency
-  write_font >/dev/null 2>&1 || true                                         # terminal font
-  write_anim smooth >/dev/null 2>&1 || true                                  # animations
-  write_scroll normal >/dev/null 2>&1 || true                                # scroll direction
-  cmd_theme light >/dev/null 2>&1 || true                                    # theme, accent, font, size, colours
-  part_reset panel >/dev/null 2>&1 || true                                   # control panel layout
-  bar_apply 2>/dev/null || true
-  apply_cursor 2>/dev/null || true
-  cmd_wallpaper restore >/dev/null 2>&1 || true
+  ( pins_runbar_default; pins_launcher_default ) || true
+  ( cmd_defaults reset >/dev/null 2>&1 ) || true                                 # Xlin-soft Files, Media, Terminal
+  ( write_opacity 0.88 0.80 quiet >/dev/null 2>&1 ) || true                     # window transparency
+  ( write_font >/dev/null 2>&1 ) || true                                         # terminal font
+  ( write_anim smooth >/dev/null 2>&1 ) || true                                  # animations
+  ( write_scroll normal >/dev/null 2>&1 ) || true                                # scroll direction
+  ( cmd_theme light >/dev/null 2>&1 ) || true                                    # theme, accent, font, size, colours
+  ( part_reset panel >/dev/null 2>&1 ) || true                                   # control panel layout
+  ( bar_apply 2>/dev/null ) || true
+  ( apply_cursor 2>/dev/null ) || true
+  ( cmd_wallpaper restore >/dev/null 2>&1 ) || true
   if have hyprctl; then                                                      # apply the generated Hyprland files now
     if is_lua; then
       hy_lua "$(cat "$HOME/.config/hypr/xlin-anim.lua" "$HOME/.config/hypr/xlin-scroll.lua" "$HOME/.config/hypr/xlin-opacity.lua" 2>/dev/null)"
     else hyprctl reload >/dev/null 2>&1; fi
   fi
-  have hypridle && cmd_idle on >/dev/null 2>&1 || true                       # lock after 5 min, sleep after 5 min
-  cmd_desktop restart quiet >/dev/null 2>&1 || true
+  have hypridle && ( cmd_idle on >/dev/null 2>&1 ) || true                       # lock after 5 min, sleep after 5 min
+  ( cmd_desktop restart quiet >/dev/null 2>&1 ) || true
   dock_restart >/dev/null 2>&1 || true; dock_verify
   stop_proc -f '[x]lin-(start|store|files|monitor|debug)( |$)'               # waiting apps start fresh
   pgrep -x waybar >/dev/null && pkill -SIGUSR2 waybar 2>/dev/null || start_waybar

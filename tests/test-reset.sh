@@ -53,4 +53,7 @@ chk "scroll is normal again"        "grep -q 'natural_scroll = false' $HOME/.con
 chk "animations are smooth again"   "[[ -f $HOME/.config/hypr/xlin-anim.lua ]] && ! grep -q 'enabled = false' $HOME/.config/hypr/xlin-anim.lua"
 chk "window transparency default"   "grep -q 'active_opacity = 0.88' $HOME/.config/hypr/xlin-opacity.lua"
 chk "welcome flag cleared"          "[[ ! -f $XLIN_HOME/state/welcomed ]]"
+out="$($X reset 2>&1)"
+chk "reset runs to the end"          "grep -q 'back to the defaults' <<<\"\$out\""
+chk "About lists the feedback mails" "grep -q theaxion.co@gmail.com $ROOT/bin/xlin-tools && grep -q themadhavsharma.co@gmail.com $ROOT/bin/xlin-tools"
 exit $fail

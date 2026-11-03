@@ -1767,6 +1767,8 @@ MANUAL_TABS = [
         ("h", "Xlin-soft"),
         ("p", "Xlin-soft is made by Madhav Sharma with Team & Axion Co."),
         ("p", "It is free software for Arch Linux and Hyprland. The sibling Xlin-advance is coming later."),
+        ("h", "Feedback and suggestions"),
+        ("p", "Write to theaxion.co@gmail.com or themadhavsharma.co@gmail.com."),
     ]),
 ]
 

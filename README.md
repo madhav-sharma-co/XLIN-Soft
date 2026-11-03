@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo/xlin-soft-dark.png" alt="Xlin-soft logo" width="360" />
+
 # Xlin-soft
 
 **A calm, clean desktop for Hyprland on Arch Linux.**
