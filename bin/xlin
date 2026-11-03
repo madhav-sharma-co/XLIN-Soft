@@ -2434,6 +2434,8 @@ Daily|Shift+Print|Screenshot: whole screen
 Daily|Alt+Print|Screenshot: active window
 Daily|Super+V|Clipboard history
 Daily|Volume/Brightness keys|With an on-screen popup
+Daily|Super+Ctrl+Up / Down|Brightness up / down
+Daily|Super+Ctrl+Right / Left|Volume up / down
 Windows|Super+Q|Close window
 Windows|Super+F|Fullscreen
 Windows|Super+H|Bring back hidden windows
@@ -2443,7 +2445,7 @@ Windows|Super+Shift+F|Floating on / off
 Windows|Alt+Tab|Next window
 Windows|Super+Arrows|Move focus
 Windows|Super+Shift+Arrows|Move the window
-Windows|Super+Ctrl+Arrows|Resize the window
+Windows|Super+Ctrl+Shift+Arrows|Resize the window
 Windows|Super+Mouse drag|Move (left) / resize (right)
 Workspaces|Super+1..4|Go to workspace
 Workspaces|Super+Shift+1..4|Send window to workspace

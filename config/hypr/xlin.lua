@@ -80,7 +80,7 @@ hl.window_rule({ match = { class = "^(dev\\.xlin\\.(Tools|Power|Session|Wifi|Blu
 --                                      Alt+Tab            next window
 --                                      Super+arrows       move focus
 --   Super+S       Settings             Super+Shift+arrows move the window
---   Super+C       Control panel        Super+Ctrl+arrows  resize the window
+--   Super+C       Control panel        Super+Ctrl+Shift+arrows  resize the window
 --   Super+T       Tools (calculator…)  Super+drag         move (left) / resize (right)
 --   Super+N       Notes (Shift: quick note)
 --   Super+B       Battery menu
@@ -152,7 +152,7 @@ local resize = {
     left  = { -40, 0 }, right = { 40, 0 }, up = { 0, -40 }, down = { 0, 40 },
 }
 for d, xy in pairs(resize) do
-    bind("SUPER + CTRL + " .. d, hl.dsp.window.resize({ x = xy[1], y = xy[2], relative = true }), { repeating = true })
+    bind("SUPER + CTRL + SHIFT + " .. d, hl.dsp.window.resize({ x = xy[1], y = xy[2], relative = true }), { repeating = true })
 end
 
 -- workspaces; touchpad: three fingers left / right = workspace, up = Launcher, down = show desktop
@@ -188,3 +188,8 @@ run("XF86AudioLowerVolume", "xlin osd volume down", media)
 run("XF86AudioMute", "xlin osd volume mute", { locked = true })
 run("XF86MonBrightnessUp", "xlin osd brightness up", media)
 run("XF86MonBrightnessDown", "xlin osd brightness down", media)
+-- the same on the keyboard without media keys: Super+Ctrl+Up / Down brightness, Left / Right volume
+run("SUPER + CTRL + up", "xlin osd brightness up", media)
+run("SUPER + CTRL + down", "xlin osd brightness down", media)
+run("SUPER + CTRL + right", "xlin osd volume up", media)
+run("SUPER + CTRL + left", "xlin osd volume down", media)

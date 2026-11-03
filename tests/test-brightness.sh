@@ -42,6 +42,9 @@ $X brightness set 50 >/dev/null
 chk "normal values are untouched"      "[[ \$(cat $HOME/bright) -eq 127 ]]"
 
 chk "panel slider minimum is 1"        "python3 -c \"import json;assert json.load(open('config/swaync/config.json'))['widget-config']['backlight']['min']==1\""
+chk "Super+Ctrl+arrows: brightness and volume (lua)"  "grep -q 'run(\"SUPER + CTRL + up\", \"xlin osd brightness up\"' config/hypr/xlin.lua && grep -q 'run(\"SUPER + CTRL + left\", \"xlin osd volume down\"' config/hypr/xlin.lua && grep -q 'SUPER + CTRL + SHIFT' config/hypr/xlin.lua"
+chk "Super+Ctrl+arrows: brightness and volume (conf)" "grep -q '^bindel = SUPER CTRL, up,.*brightness up' config/hypr/xlin.conf && grep -q '^bindel = SUPER CTRL, right,.*volume up' config/hypr/xlin.conf && grep -q '^binde = SUPER CTRL SHIFT, left,  resizeactive' config/hypr/xlin.conf"
+chk "resize moved to Super+Ctrl+Shift, no clash"      "! grep -q '^binde = SUPER CTRL, ' config/hypr/xlin.conf"
 chk "panel has a Silent mode tile"    "python3 -c \"import json;d=json.load(open('config/swaync/config.json'));assert 'buttons-grid#sound' not in d['widgets'];a=d['widget-config']['buttons-grid']['actions'];assert any(x['command']=='xlin silent toggle' and x['update-command']=='xlin state silent' for x in a)\""
 chk "bar volume middle-click mutes"    "grep -A9 '\"pulseaudio\"' config/waybar/config.jsonc | grep -q '\"on-click-middle\": \"xlin sound toggle\"'"
 chk "Settings slider goes through xlin" "grep -q '\"xlin\", \"brightness\", \"set\"' bin/xlin-settings"
