@@ -1,0 +1,677 @@
+#!/usr/bin/env python3
+"""Xread - the Xlin-soft document reader for PDF files. Continuous scrolling, zoom, fit width, search with
+highlights, contents sidebar, night mode, full screen, password-protected files. Run: xlin read file.pdf
+
+Keys: PgUp/PgDn or Space - Home/End - Ctrl + / - / 0 zoom - W fit width - Ctrl+F find - F3 / Shift+F3 next / previous
+match - N night mode - B contents - F or F11 full screen - Ctrl+O open - Ctrl+G go to page.
+Needs poppler-glib (sudo pacman -S poppler-glib).
+"""
+import faulthandler
+import os
+import sys
+import traceback
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+sys.path[:0] = ["/usr/local/lib/xlin", os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib")]
+import xlin_ui  # noqa: E402
+
+try:
+    os.makedirs(os.path.expanduser("~/.cache/xlin"), exist_ok=True)
+    faulthandler.enable(open(os.path.expanduser("~/.cache/xlin/read-crash.log"), "a"))
+except OSError:
+    pass
+
+POPPLER_ERROR = None
+try:
+    gi.require_version("Poppler", "0.18")
+    from gi.repository import Poppler  # noqa: E402
+    import cairo  # noqa: E402
+except Exception as e:       # noqa: BLE001
+    Poppler = None
+    cairo = None
+    POPPLER_ERROR = str(e)
+
+APP_ID = "dev.xlin.Read"
+STATE = os.path.expanduser("~/.config/xlin/state")
+CSS_FILE = os.path.expanduser("~/.config/xlin/tools.css")
+BASE_DPI = 96.0 / 72.0           # zoom 1.0 = a page as big as on paper at 96 dpi
+HINT = "Install the PDF library:  sudo pacman -S poppler-glib   (or run: xlin fix)"
+GAP = 14
+
+
+def log(msg):
+    try:
+        with open(os.path.expanduser("~/.cache/xlin/read.log"), "a") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def read_state(name, default=""):
+    try:
+        with open(os.path.join(STATE, name)) as f:
+            return f.read().strip() or default
+    except OSError:
+        return default
+
+
+def write_state(name, value):
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(os.path.join(STATE, name), "w") as f:
+            f.write(str(value))
+    except OSError:
+        pass
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def flip_rect(rect, page_height):
+    """Poppler search rectangles have the origin at the bottom left; drawing has it at the top left."""
+    return rect.x1, page_height - rect.y2, rect.x2 - rect.x1, rect.y2 - rect.y1
+
+
+class PageView(Gtk.DrawingArea):
+    """One page, drawn when it scrolls into view."""
+
+    def __init__(self, reader, index, page):
+        super().__init__()
+        self.reader, self.index, self.page = reader, index, page
+        self.pw, self.ph = page.get_size()
+        self.set_halign(Gtk.Align.CENTER)
+        self.set_draw_func(self.draw)
+        self.surface = None
+        self.surface_zoom = None
+        self.hits = []              # rectangles of search matches on this page (page coordinates)
+        self.current_hit = -1
+        self.resize()
+
+    def resize(self):
+        z = self.reader.zoom * BASE_DPI
+        self.set_content_width(max(20, int(self.pw * z)))
+        self.set_content_height(max(20, int(self.ph * z)))
+        self.surface = None
+        self.queue_draw()
+
+    def render(self, width, height, z):
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+        cr = cairo.Context(surf)
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.scale(z, z)
+        self.page.render(cr)
+        return surf
+
+    def draw(self, _area, cr, width, height):
+        z = self.reader.zoom * BASE_DPI
+        try:
+            if self.surface is None or self.surface_zoom != z:
+                self.surface = self.render(width, height, z)
+                self.surface_zoom = z
+                self.reader.trim_cache(self)
+            cr.set_source_surface(self.surface, 0, 0)
+            cr.paint()
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+        for n, rect in enumerate(self.hits):
+            x, y, w, h = flip_rect(rect, self.ph)
+            cr.rectangle(x * z, y * z, w * z, h * z)
+            if n == self.current_hit:
+                cr.set_source_rgba(1.0, 0.55, 0.0, 0.55)
+            else:
+                cr.set_source_rgba(1.0, 0.9, 0.0, 0.40)
+            cr.fill()
+        if self.reader.night:                      # invert: white page becomes dark, black text becomes light
+            cr.set_operator(cairo.OPERATOR_DIFFERENCE)
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+
+    def drop_cache(self):
+        self.surface = None
+
+
+class ReadWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Xread")
+        self.set_default_size(*xlin_ui.default_size())
+        self.add_css_class("xlin-tools")
+        self.title_label = xlin_ui.titlebar(self, "Xread")
+        self.doc = None
+        self.path = None
+        self.pages = []
+        self.zoom = 1.0
+        self.fit_width = True
+        self.night = read_state("read_night", "off") == "on"
+        self.fs = False
+        self.hits_total = []        # [(page index, rect index)]
+        self.hit_pos = -1
+        self.idle_id = 0
+        self.fit_id = 0
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.set_child(root)
+
+        self.bar = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=6,
+                               row_spacing=6, max_children_per_line=30, min_children_per_line=1)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(self.bar, f"set_margin_{m}")(8)
+
+        def btn(label, tip, fn):
+            b = Gtk.Button(label=label)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda _b: fn())
+            self.bar.append(b)
+            return b
+        btn("Open", "Open a PDF (Ctrl+O)", self.open_dialog)
+        self.side_btn = Gtk.ToggleButton(label="Contents")
+        self.side_btn.set_tooltip_text("Chapters and bookmarks (B)")
+        self.side_btn.connect("toggled", lambda b: self.side.set_visible(b.get_active()))
+        self.bar.append(self.side_btn)
+        btn("◀", "Previous page (PgUp)", lambda: self.goto_page(self.current_page() - 1))
+        self.page_entry = Gtk.Entry(width_chars=4, max_width_chars=5)
+        self.page_entry.set_tooltip_text("Go to page (Ctrl+G)")
+        self.page_entry.connect("activate", lambda e: self.goto_text(e.get_text()))
+        self.bar.append(self.page_entry)
+        self.count_lab = Gtk.Label(label="/ 0")
+        self.count_lab.add_css_class("tools-sub")
+        self.bar.append(self.count_lab)
+        btn("▶", "Next page (PgDn)", lambda: self.goto_page(self.current_page() + 1))
+        btn("−", "Zoom out (Ctrl+-)", lambda: self.zoom_by(0.85))
+        btn("+", "Zoom in (Ctrl++)", lambda: self.zoom_by(1.18))
+        btn("Fit width", "Fit the page to the window (W)", self.fit)
+        btn("100%", "Actual size (Ctrl+0)", lambda: self.set_zoom(1.0))
+        btn("Find", "Search the text (Ctrl+F)", self.show_find)
+        self.night_btn = Gtk.ToggleButton(label="Night")
+        self.night_btn.set_tooltip_text("Light text on a dark page (N)")
+        self.night_btn.set_active(self.night)
+        self.night_btn.connect("toggled", lambda b: self.set_night(b.get_active()))
+        self.bar.append(self.night_btn)
+        btn("⛶", "Full screen (F)", self.toggle_fullscreen)
+        root.append(self.bar)
+
+        # ---- find bar
+        self.find_bar = Gtk.Box(spacing=6)
+        self.find_bar.set_margin_start(8)
+        self.find_bar.set_margin_end(8)
+        self.find_bar.set_visible(False)
+        self.find_entry = Gtk.SearchEntry(hexpand=True, placeholder_text="Find in this document")
+        self.find_entry.connect("activate", lambda _e: self.find_step(1) if self.hits_total else self.run_search())
+        self.find_entry.connect("search-changed", lambda _e: self.run_search())
+        self.find_bar.append(self.find_entry)
+        for label, d in (("Previous", -1), ("Next", 1)):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, d=d: self.find_step(d))
+            self.find_bar.append(b)
+        self.find_lab = Gtk.Label(label="")
+        self.find_lab.add_css_class("tools-sub")
+        self.find_bar.append(self.find_lab)
+        x = Gtk.Button(label="✕")
+        x.connect("clicked", lambda _b: self.hide_find())
+        self.find_bar.append(x)
+        root.append(self.find_bar)
+
+        # ---- body: contents + pages
+        body = Gtk.Box(vexpand=True)
+        self.side = Gtk.ScrolledWindow(vexpand=True)
+        self.side.set_size_request(xlin_ui.scaled(240), -1)
+        self.side.set_visible(False)
+        self.outline = Gtk.ListBox()
+        self.outline.add_css_class("fm-list")
+        self.outline.connect("row-activated", lambda _l, row: self.goto_page(row.page))
+        self.side.set_child(self.outline)
+        body.append(self.side)
+
+        self.holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=GAP)
+        self.holder.set_halign(Gtk.Align.CENTER)
+        self.holder.set_margin_top(GAP)
+        self.holder.set_margin_bottom(GAP)
+        self.holder.set_margin_start(GAP)
+        self.holder.set_margin_end(GAP)
+        self.scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        self.scroll.set_child(self.holder)
+        self.empty = Gtk.Label(label="Open a PDF, or drop one here")
+        self.empty.add_css_class("tool-title")
+        self.stack = Gtk.Stack(hexpand=True, vexpand=True)
+        self.stack.add_named(self.empty, "empty")
+        self.stack.add_named(self.scroll, "doc")
+        body.append(self.stack)
+        root.append(body)
+        self.msg = Gtk.Label(label="", xalign=0, margin_start=10, margin_top=4, margin_bottom=6)
+        self.msg.add_css_class("tools-sub")
+        root.append(self.msg)
+        if Poppler is None:
+            self.msg.set_text("The PDF library is missing. " + HINT)
+            log(f"poppler import failed: {POPPLER_ERROR}")
+
+        self.scroll.get_vadjustment().connect("value-changed", lambda _a: self.on_scrolled())
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        wheel.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        wheel.connect("scroll", self.on_wheel)
+        self.stack.add_controller(wheel)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda _g, n, _x, _y: n == 2 and self.toggle_fullscreen())
+        self.stack.add_controller(click)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", lambda *_a: self.wake())
+        self.add_controller(motion)
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", lambda _t, fl, _x, _y: (self.open_file(fl.get_files()[0].get_path()), True)[1] if fl.get_files() else False)
+        self.add_controller(drop)
+        GLib.timeout_add(400, self.check_width)
+        self.last_width = 0
+
+    # ---- opening
+    def open_file(self, path, password=None):
+        if Poppler is None:
+            self.msg.set_text("The PDF library is missing. " + HINT)
+            return
+        path = os.path.abspath(path)
+        try:
+            doc = Poppler.Document.new_from_file(GLib.filename_to_uri(path), password)
+        except GLib.Error as e:
+            text = (e.message or "").lower()
+            if "encrypt" in text or "password" in text:
+                self.ask_password(path, bad=password is not None)
+            else:
+                self.msg.set_text(f"Cannot open {os.path.basename(path)}: {e.message}")
+                log(f"{path}: {e.message}")
+            return
+        self.doc, self.path = doc, path
+        for child in list(self.iter_children(self.holder)):
+            self.holder.remove(child)
+        self.pages = []
+        for i in range(doc.get_n_pages()):
+            page = doc.get_page(i)
+            if page is None:
+                continue
+            view = PageView(self, i, page)
+            self.pages.append(view)
+            self.holder.append(view)
+        self.hits_total, self.hit_pos = [], -1
+        self.count_lab.set_text(f"/ {len(self.pages)}")
+        title = doc.get_title() or os.path.splitext(os.path.basename(path))[0]
+        self.title_label.set_text(f"{title} - Xread")
+        self.stack.set_visible_child_name("doc")
+        self.msg.set_text(f"{len(self.pages)} page{'s' if len(self.pages) != 1 else ''}")
+        self.fill_outline()
+        self.fit_width = True
+        GLib.idle_add(self.fit)
+        self.present()
+
+    @staticmethod
+    def iter_children(box):
+        c = box.get_first_child()
+        while c is not None:
+            nxt = c.get_next_sibling()
+            yield c
+            c = nxt
+
+    def ask_password(self, path, bad=False):
+        win = Gtk.Window(title="Password", transient_for=self, modal=True)
+        win.set_default_size(xlin_ui.scaled(360), -1)
+        win.add_css_class("xlin-tools")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{m}")(16)
+        box.append(Gtk.Label(label=("Wrong password. " if bad else "") + f"{os.path.basename(path)} is protected.", xalign=0, wrap=True))
+        entry = Gtk.PasswordEntry(show_peek_icon=True)
+        box.append(entry)
+        row = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda _b: win.close())
+        ok = Gtk.Button(label="Open")
+
+        def go(*_a):
+            pw = entry.get_text()
+            win.close()
+            self.open_file(path, pw)
+        ok.connect("clicked", go)
+        entry.connect("activate", go)
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        win.set_child(box)
+        win.present()
+        entry.grab_focus()
+
+    def open_dialog(self):
+        dlg = Gtk.FileDialog(title="Open a document")
+        flt = Gtk.FileFilter()
+        flt.set_name("PDF documents")
+        flt.add_mime_type("application/pdf")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+
+        def done(d, res):
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return
+            self.open_file(f.get_path())
+        dlg.open(self, None, done)
+
+    def fill_outline(self):
+        while (c := self.outline.get_first_child()) is not None:
+            self.outline.remove(c)
+        entries = []
+        try:
+            it = Poppler.IndexIter.new(self.doc)
+            if it is not None:
+                self.walk_outline(it, 0, entries)
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+        for title, page, depth in entries:
+            row = Gtk.ListBoxRow()
+            lab = Gtk.Label(label=title, xalign=0)
+            lab.set_ellipsize(3)
+            lab.set_margin_start(8 + depth * 14)
+            lab.set_margin_top(5)
+            lab.set_margin_bottom(5)
+            row.set_child(lab)
+            row.page = page
+            self.outline.append(row)
+        if not entries:                          # no bookmarks in this file: list the pages instead
+            for i in range(len(self.pages)):
+                row = Gtk.ListBoxRow()
+                lab = Gtk.Label(label=f"Page {i + 1}", xalign=0, margin_start=8, margin_top=5, margin_bottom=5)
+                row.set_child(lab)
+                row.page = i
+                self.outline.append(row)
+
+    def walk_outline(self, it, depth, out):
+        while True:
+            action = it.get_action()
+            if action is not None and action.type == Poppler.ActionType.GOTO_DEST:
+                dest = action.goto_dest.dest
+                if dest is not None and dest.type == Poppler.DestType.NAMED:
+                    dest = self.doc.find_dest(dest.named_dest)
+                if dest is not None and dest.page_num >= 1:
+                    out.append((action.goto_dest.title or "(untitled)", dest.page_num - 1, depth))
+            child = it.get_child()
+            if child is not None:
+                self.walk_outline(child, depth + 1, out)
+            if not it.next():
+                break
+
+    # ---- layout, zoom, paging
+    def viewport_width(self):
+        return max(100, self.scroll.get_width() - 2 * GAP - 18)
+
+    def fit(self):
+        if not self.pages:
+            return False
+        self.fit_width = True
+        widest = max(p.pw for p in self.pages)
+        self.set_zoom(self.viewport_width() / (widest * BASE_DPI), keep_fit=True)
+        return False
+
+    def set_zoom(self, z, keep_fit=False):
+        if not self.pages:
+            return
+        cur = self.current_page()
+        self.zoom = clamp(z, 0.2, 6.0)
+        if not keep_fit:
+            self.fit_width = False
+        for p in self.pages:
+            p.resize()
+        GLib.idle_add(lambda: (self.goto_page(cur, smooth=False), False)[1])
+        self.msg.set_text(f"{round(self.zoom * 100)}%")
+
+    def zoom_by(self, f):
+        self.set_zoom(self.zoom * f)
+
+    def check_width(self):
+        """The window was resized: in fit-width mode the pages follow."""
+        w = self.scroll.get_width()
+        if self.fit_width and self.pages and abs(w - self.last_width) > 8:
+            self.fit()
+        self.last_width = w
+        return True
+
+    def trim_cache(self, keep):
+        """Keep rendered pages for the few nearest the one just drawn only (memory)."""
+        cached = [p for p in self.pages if p.surface is not None]
+        if len(cached) > 10:
+            cached.sort(key=lambda p: abs(p.index - keep.index))
+            for p in cached[10:]:
+                p.drop_cache()
+
+    def page_top(self, view):
+        ok, rect = view.compute_bounds(self.holder)
+        return rect.get_y() if ok else 0
+
+    def current_page(self):
+        if not self.pages:
+            return 0
+        mid = self.scroll.get_vadjustment().get_value() + self.scroll.get_height() * 0.35
+        best = 0
+        for p in self.pages:
+            if self.page_top(p) <= mid:
+                best = p.index
+            else:
+                break
+        return best
+
+    def goto_page(self, n, smooth=True):
+        if not self.pages:
+            return
+        n = clamp(n, 0, len(self.pages) - 1)
+        adj = self.scroll.get_vadjustment()
+        adj.set_value(self.page_top(self.pages[n]) + self.holder.get_margin_top() - GAP)
+
+    def goto_text(self, text):
+        try:
+            self.goto_page(int(text.strip()) - 1)
+        except ValueError:
+            pass
+        self.scroll.grab_focus()
+
+    def on_scrolled(self):
+        if self.pages and not self.page_entry.has_focus():
+            self.page_entry.set_text(str(self.current_page() + 1))
+
+    def on_wheel(self, ctrl, _dx, dy):
+        if ctrl.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK:
+            self.zoom_by(0.9 if dy > 0 else 1.1)
+            return True
+        return False
+
+    # ---- find
+    def show_find(self):
+        self.find_bar.set_visible(True)
+        self.find_entry.grab_focus()
+        self.find_entry.select_region(0, -1)
+
+    def hide_find(self):
+        self.find_bar.set_visible(False)
+        for p in self.pages:
+            p.hits, p.current_hit = [], -1
+            p.queue_draw()
+        self.hits_total, self.hit_pos = [], -1
+        self.find_lab.set_text("")
+
+    def run_search(self):
+        needle = self.find_entry.get_text()
+        for p in self.pages:
+            p.hits, p.current_hit = [], -1
+        self.hits_total, self.hit_pos = [], -1
+        if not needle or not self.pages:
+            self.find_lab.set_text("")
+            for p in self.pages:
+                p.queue_draw()
+            return
+        total = 0
+        for p in self.pages:
+            try:
+                p.hits = list(p.page.find_text(needle))
+            except Exception:       # noqa: BLE001
+                p.hits = []
+            for k in range(len(p.hits)):
+                self.hits_total.append((p.index, k))
+            total += len(p.hits)
+            p.queue_draw()
+        self.find_lab.set_text(f"{total} match{'es' if total != 1 else ''}" if total else "Not found")
+        if self.hits_total:
+            start = next((i for i, (pg, _k) in enumerate(self.hits_total) if pg >= self.current_page()), 0)
+            self.show_hit(start)
+
+    def show_hit(self, pos):
+        if not self.hits_total:
+            return
+        for p in self.pages:
+            p.current_hit = -1
+        self.hit_pos = pos % len(self.hits_total)
+        pg, k = self.hits_total[self.hit_pos]
+        view = self.pages[pg]
+        view.current_hit = k
+        _x, y, _w, _h = flip_rect(view.hits[k], view.ph)
+        z = self.zoom * BASE_DPI
+        adj = self.scroll.get_vadjustment()
+        adj.set_value(self.page_top(view) + y * z - self.scroll.get_height() * 0.3)
+        view.queue_draw()
+        self.find_lab.set_text(f"{self.hit_pos + 1} of {len(self.hits_total)}")
+
+    def find_step(self, d):
+        if self.hits_total:
+            self.show_hit(self.hit_pos + d)
+        else:
+            self.run_search()
+
+    # ---- look
+    def set_night(self, on):
+        self.night = on
+        write_state("read_night", "on" if on else "off")
+        for p in self.pages:
+            p.queue_draw()
+
+    def toggle_fullscreen(self):
+        self.fs = not self.fs
+        (self.fullscreen if self.fs else self.unfullscreen)()
+        self.bar.set_visible(not self.fs)
+        self.msg.set_visible(not self.fs)
+        if self.fs:
+            self.find_bar.set_visible(False)
+        self.set_cursor(None)
+        self.wake()
+
+    def wake(self):
+        self.set_cursor(None)
+        if self.idle_id:
+            GLib.source_remove(self.idle_id)
+            self.idle_id = 0
+        if self.fs:
+            self.idle_id = GLib.timeout_add(2500, lambda: (setattr(self, "idle_id", 0), self.set_cursor_from_name("none"), False)[2])
+
+    # ---- keys
+    def on_key(self, _c, keyval, _code, state):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        if isinstance(self.get_focus(), Gtk.Text):                # typing in a box: the keys are for it
+            if keyval == Gdk.KEY_Escape and self.find_bar.get_visible():
+                self.hide_find()
+                return True
+            if not (ctrl and Gdk.keyval_to_lower(keyval) in (Gdk.KEY_f, Gdk.KEY_o, Gdk.KEY_g)):
+                return False
+        k = Gdk.keyval_to_lower(keyval)
+        adj = self.scroll.get_vadjustment()
+        if ctrl:
+            if k == Gdk.KEY_o:
+                self.open_dialog()
+            elif k == Gdk.KEY_f:
+                self.show_find()
+            elif k == Gdk.KEY_g:
+                self.page_entry.grab_focus()
+                self.page_entry.select_region(0, -1)
+            elif k in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+                self.zoom_by(1.18)
+            elif k in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+                self.zoom_by(0.85)
+            elif k in (Gdk.KEY_0, Gdk.KEY_KP_0):
+                self.set_zoom(1.0)
+            else:
+                return False
+            return True
+        if keyval == Gdk.KEY_F3:
+            self.find_step(-1 if shift else 1)
+        elif keyval in (Gdk.KEY_Page_Down,) or (keyval == Gdk.KEY_space and not shift):
+            adj.set_value(adj.get_value() + adj.get_page_size() * 0.9)
+        elif keyval in (Gdk.KEY_Page_Up,) or (keyval == Gdk.KEY_space and shift):
+            adj.set_value(adj.get_value() - adj.get_page_size() * 0.9)
+        elif keyval == Gdk.KEY_Home:
+            adj.set_value(adj.get_lower())
+        elif keyval == Gdk.KEY_End:
+            adj.set_value(adj.get_upper())
+        elif k == Gdk.KEY_w:
+            self.fit()
+        elif k == Gdk.KEY_n:
+            self.night_btn.set_active(not self.night_btn.get_active())
+        elif k == Gdk.KEY_b:
+            self.side_btn.set_active(not self.side_btn.get_active())
+        elif k == Gdk.KEY_f or keyval == Gdk.KEY_F11:
+            self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_Escape and self.fs:
+            self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_Escape and self.find_bar.get_visible():
+            self.hide_find()
+        else:
+            return False
+        return True
+
+
+class ReadApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.win = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        xlin_ui.live_css()
+        try:
+            with open(CSS_FILE, "rb") as f:
+                data = f.read()
+            prov = Gtk.CssProvider()
+            prov.load_from_data(data)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except Exception:       # noqa: BLE001
+            pass
+
+    def window(self):
+        if self.win is None:
+            self.win = ReadWindow(self)
+        return self.win
+
+    def do_activate(self):
+        try:
+            self.window().present()
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+    def do_open(self, files, _n, _hint):
+        try:
+            win = self.window()
+            win.present()
+            path = next((f.get_path() for f in files if f.get_path()), None)
+            if path:
+                # open once the window is on screen, so "fit width" knows the real width
+                GLib.timeout_add(250, lambda: (win.open_file(path), False)[1])
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+
+if __name__ == "__main__":
+    sys.exit(ReadApp().run(sys.argv))

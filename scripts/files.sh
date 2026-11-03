@@ -3,7 +3,7 @@
 # Source it, set SRC to the repository folder, and call `xlin_install_files`.
 
 XLIN_BINS=(xlin xlin-dock-watch xlin-settings xlin-tools xlin-welcome xlin-files xlin-monitor xlin-terminal
-  xlin-desktop xlin-start xlin-store xlin-media xlin-debug xlin-edit xlin-view)
+  xlin-desktop xlin-start xlin-store xlin-media xlin-debug xlin-edit xlin-view xlin-read)
 XLIN_LIBS=(hyprland.sh config-backups.sh xlin_ui.py)
 
 xlin_install_files() {

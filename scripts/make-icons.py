@@ -120,6 +120,12 @@ def picture():
             '<path d="M26 92l26-28 18 18 12-12 24 22z" fill="#2fa6b8"/>')
 
 
+def document():
+    return ('<path d="M36 22h40l20 20v62a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z" fill="#fff"/>'
+            '<path d="M76 22v14a6 6 0 0 0 6 6h14z" fill="#fff" fill-opacity=".7"/>'
+            '<path d="M42 58h44M42 72h44M42 86h28" stroke="#e5484d" stroke-width="6" stroke-linecap="round"/>')
+
+
 def debug():
     return ('<ellipse cx="64" cy="70" rx="22" ry="28" fill="#fff"/>'
             '<circle cx="64" cy="40" r="12" fill="#fff"/>'
@@ -142,6 +148,7 @@ ICONS = {
     "xlin-tools": ("#bf7bff", "#5a57e0", tools()),
     "xlin-manual": ("#7fd6ff", "#3b6df0", xsign()),
     "xlin-edit": ("#6be39a", "#1f9d5f", pencil()),
+    "xlin-read": ("#ffb199", "#e5484d", document()),
     "xlin-view": ("#7dd3fc", "#2563eb", picture()),
     "xlin-welcome": ("#ff8fb1", "#ff8a3d", sparkle()),
     "xlin-monitor": ("#5ee0a0", "#16a05f", monitor()),

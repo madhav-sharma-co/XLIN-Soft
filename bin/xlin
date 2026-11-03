@@ -1065,8 +1065,10 @@ cmd_doctor() {
   else echo "  MISSING  gtk4-layer-shell   (sudo pacman -S gtk4-layer-shell); the desktop menu and widgets need it"; missing=1; fi
   python3 -c 'import gi; gi.require_version("GtkSource","5")' 2>/dev/null \
     && echo "  ok       syntax colours for Xedit (gtksourceview5)" || echo "  missing  Xedit syntax colours need gtksourceview5   (sudo pacman -S gtksourceview5); the editor works without"
+  python3 -c 'import gi; gi.require_version("Poppler","0.18")' 2>/dev/null \
+    && echo "  ok       PDF reading for Xread (poppler-glib)" || echo "  missing  Xread needs poppler-glib   (sudo pacman -S poppler-glib)"
   echo "Xlin-soft commands:"
-  for b in xlin xlin-dock-watch xlin-settings xlin-tools xlin-welcome xlin-files xlin-monitor xlin-terminal xlin-desktop xlin-start xlin-store xlin-media xlin-debug xlin-edit xlin-view; do
+  for b in xlin xlin-dock-watch xlin-settings xlin-tools xlin-welcome xlin-files xlin-monitor xlin-terminal xlin-desktop xlin-start xlin-store xlin-media xlin-debug xlin-edit xlin-view xlin-read; do
     have "$b" && printf '  ok       %s\n' "$b" || { printf '  MISSING  %s   (run ./update.sh)\n' "$b"; missing=1; }
   done
   echo "Extras (features that need them):"
@@ -2005,6 +2007,7 @@ _open_app() {   # _open_app <command> <package hint> [args]
 }
 cmd_edit() { _open_app xlin-edit "python-gobject (sudo pacman -S python-gobject gtksourceview5)" "$@"; }
 cmd_view() { _open_app xlin-view "python-gobject (sudo pacman -S python-gobject)" "$@"; }
+cmd_read() { _open_app xlin-read "python-gobject and poppler-glib (sudo pacman -S python-gobject poppler-glib)" "$@"; }
 
 cmd_store() {
   warm_activate dev.xlin.Store && return 0
@@ -2056,8 +2059,9 @@ cmd_defaults() {
         for mime in $(defaults_mimes music) $(defaults_mimes video); do xdg-mime default dev.xlin.Media.desktop "$mime"; done
         for mime in $(defaults_mimes text); do xdg-mime default dev.xlin.Edit.desktop "$mime"; done
         for mime in $(defaults_mimes images); do xdg-mime default dev.xlin.View.desktop "$mime"; done
+        for mime in $(defaults_mimes pdf); do xdg-mime default dev.xlin.Read.desktop "$mime"; done
       fi
-      echo "default apps: Xlin-soft Files, Media, Xedit, Xview and Terminal" ;;
+      echo "default apps: Xlin-soft Files, Media, Xedit, Xview, Xread and Terminal" ;;
     *) echo "usage: xlin defaults [list | set <kind> <app> | reset]"; return 1 ;;
   esac
 }
@@ -2242,7 +2246,7 @@ EOT
   echo "Xlin-soft removed. Start your own bar with e.g. 'waybar &'. Log out and in again for a clean session."
   # last step replaces this shell, because it deletes the very script that is running
   sudo rm -rf /usr/local/lib/xlin
-  sudo rm -f /usr/local/bin/xlin-launcher /usr/local/bin/xlin-start /usr/local/bin/xlin-store /usr/local/bin/xlin-media /usr/local/bin/xlin-debug /usr/local/bin/xlin-edit /usr/local/bin/xlin-view
+  sudo rm -f /usr/local/bin/xlin-launcher /usr/local/bin/xlin-start /usr/local/bin/xlin-store /usr/local/bin/xlin-media /usr/local/bin/xlin-debug /usr/local/bin/xlin-edit /usr/local/bin/xlin-view /usr/local/bin/xlin-read
   exec sudo rm -f /usr/local/bin/xlin /usr/local/bin/xlin-dock-watch /usr/local/bin/xlin-settings \
                   /usr/local/bin/xlin-tools /usr/local/bin/xlin-welcome /usr/local/bin/xlin-files /usr/local/bin/xlin-monitor /usr/local/bin/xlin-terminal /usr/local/bin/xlin-desktop
 }
@@ -2540,6 +2544,7 @@ ${B}System${R}
   xlin warm on|off                 Keep apps ready (instant open)
   xlin media [files]               Xlin-soft Media: music and video player
   xlin edit [files]                Xedit: text editor      xlin view [pictures]   Xview: image viewer
+  xlin read [file.pdf]             Xread: document (PDF) reader
   xlin debug                       SysDeb: health checks, logs, quick repairs
   xlin files [folder|default]      Xlin-soft Files (default = use it for "show in folder")
   xlin notes [list|dir]            Notes window (Super+N); xlin note "text" saves a quick note
@@ -2661,6 +2666,7 @@ case "${1:-help}" in
   media)     shift; cmd_media "$@" ;;
   edit|xedit)  shift; cmd_edit "$@" ;;
   view|xview)  shift; cmd_view "$@" ;;
+  read|xread)  shift; cmd_read "$@" ;;
   monitor)   cmd_monitor ;;
   desktop-menu) shift; cmd_desktop_menu "${1:-}" ;;
   term)      shift; cmd_term "$@" ;;

@@ -50,4 +50,4 @@ jobs:
       - name: Menus and manual
         run: bash tests/test-menus.sh
       - name: Python compile
-        run: python3 -m py_compile bin/xlin-settings bin/xlin-tools bin/xlin-files bin/xlin-welcome bin/xlin-monitor bin/xlin-terminal bin/xlin-desktop bin/xlin-store bin/xlin-media bin/xlin-debug bin/xlin-edit bin/xlin-view bin/xlin-start lib/xlin_ui.py scripts/make-cursors.py scripts/make-icons.py scripts/make-wallpapers.py
+        run: python3 -m py_compile bin/xlin-settings bin/xlin-tools bin/xlin-files bin/xlin-welcome bin/xlin-monitor bin/xlin-terminal bin/xlin-desktop bin/xlin-store bin/xlin-media bin/xlin-debug bin/xlin-edit bin/xlin-view bin/xlin-read bin/xlin-start lib/xlin_ui.py scripts/make-cursors.py scripts/make-icons.py scripts/make-wallpapers.py

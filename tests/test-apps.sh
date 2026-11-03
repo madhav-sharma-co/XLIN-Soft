@@ -4,13 +4,13 @@ set -u
 cd "$(dirname "$0")/.."
 fail=0
 chk() { if eval "$2"; then echo "ok: $1"; else echo "FAIL: $1"; fail=1; fi; }
-for app in edit view; do
+for app in edit view read; do
   chk "xlin-$app compiles"          "python3 -m py_compile bin/xlin-$app"
   chk "xlin-$app is installed"      "grep -q xlin-$app scripts/files.sh"
   chk "xlin-$app is in the doctor and uninstall lists" "grep -q 'xlin-$app[ ;]' bin/xlin && grep -q '/usr/local/bin/xlin-$app' bin/xlin"
   chk "xlin $app dispatches"        "grep -Eq '^  $app\\|x$app\\)' bin/xlin"
 done
-for pair in "Edit:xlin-edit" "View:xlin-view"; do
+for pair in "Edit:xlin-edit" "View:xlin-view" "Read:xlin-read"; do
   n="${pair%%:*}"; icon="${pair##*:}"
   chk "$n: desktop entry and icon"  "grep -q 'Icon=$icon' config/applications/dev.xlin.$n.desktop && [[ -f assets/icons/$icon.svg ]]"
   chk "$n: window rules"            "grep -q 'xlin.\\.$n' config/hypr/xlin.conf && grep -q '\"$n\"' config/hypr/xlin.lua"
@@ -31,6 +31,14 @@ assert f('Hello hello', 'hello', 0) == 0 and f('Hello hello', 'hello', 1) == 6
 assert f('Hello hello', 'hello', 7) == 0                      # wraps round
 assert f('Hello hello', 'hello', 0, case=True) == 6
 assert f('abc', 'x', 0) == -1 and f('abcabc', 'abc', 3, backwards=True) == 0
+PY"
+chk "reader helpers"                "python3 - <<'PY'
+src = open('bin/xlin-read').read()
+ns = {}
+exec(src[src.index('def clamp'):src.index('class PageView')], ns)
+assert ns['clamp'](5, 0, 3) == 3 and ns['clamp'](-1, 0, 3) == 0
+class R: x1, y1, x2, y2 = 10, 20, 50, 30
+assert ns['flip_rect'](R, 100) == (10, 70, 40, 10)
 PY"
 chk "image viewer helpers"          "python3 - <<'PY'
 import os, re, tempfile

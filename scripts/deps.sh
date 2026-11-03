@@ -7,7 +7,7 @@ XLIN_REQUIRED=(hyprland waybar swaync jq socat libnotify brightnessctl networkma
   pipewire wireplumber pavucontrol blueman imagemagick ttf-font-awesome inter-font gtk3 gtk4 python-gobject
   gtk4-layer-shell bluez bluez-utils power-profiles-daemon hyprlock ttf-nerd-fonts-symbols vte4 polkit)
 XLIN_EXTRA=(rofi udisks2 gvfs gvfs-smb grim slurp wl-clipboard cliphist hypridle hyprsunset
-  xdg-desktop-portal-hyprland xdg-desktop-portal-gtk hyprpolkitagent playerctl gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav gst-plugin-gtk4 gtksourceview5)
+  xdg-desktop-portal-hyprland xdg-desktop-portal-gtk hyprpolkitagent playerctl gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav gst-plugin-gtk4 gtksourceview5 poppler-glib)
 
 _d_say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 

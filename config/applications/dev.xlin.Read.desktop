@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Xread
+GenericName=Document Reader
+Comment=Read PDF documents
+Exec=xlin-read %F
+Icon=xlin-read
+Terminal=false
+Categories=Office;Viewer;Graphics;
+MimeType=application/pdf;application/x-pdf;
+StartupWMClass=dev.xlin.Read
