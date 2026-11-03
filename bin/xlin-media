@@ -159,7 +159,7 @@ class GstEngine:
         self.pipe.set_state(Gst.State.NULL)
         self.uri = uri
         self.pipe.set_property("uri", uri)
-        self.pipe.set_property("suburi", suburi or "")
+        self.pipe.set_property("suburi", suburi or None)
         self.rate = 1.0
         self.pipe.set_state(Gst.State.PLAYING)
 

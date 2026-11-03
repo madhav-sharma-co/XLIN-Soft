@@ -507,6 +507,8 @@ class EditWindow(Gtk.ApplicationWindow):
 
     def goto_line(self):
         d = self.current()
+        if d is None:
+            return
         try:
             n = int(self.goto_entry.get_text().strip())
         except ValueError:

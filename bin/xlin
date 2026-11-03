@@ -2238,6 +2238,7 @@ EOT
   rm -f "$HOME"/.config/kitty/xlin-{theme,font}.conf
   restore_generated_file "$HOME/.config/bashrc/99-xlin"
   rm -f "$HOME"/.local/share/applications/dev.xlin.*.desktop
+  [[ -f "$HOME/.config/mimeapps.list" ]] && sed -i "/dev\.xlin\./d" "$HOME/.config/mimeapps.list"
   rm -f "$HOME"/.local/share/icons/hicolor/scalable/apps/xlin-*.svg
   rm -rf "$HOME/.local/share/icons/XLIN" "$HOME/.local/share/icons/XLIN-Dark"
   [[ -f "$HOME/.bashrc" ]] && sed -i '/xlin\/shell\.bash/d' "$HOME/.bashrc"

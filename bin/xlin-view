@@ -160,18 +160,18 @@ class ViewWindow(Gtk.ApplicationWindow):
             return
         first = paths[0]
         if os.path.isdir(first):
-            self.files, self.index = images_in(first), 0
+            files, index = images_in(first), 0
         elif len(paths) == 1:                                  # one picture: browse its folder
-            self.files = images_in(os.path.dirname(first)) or [first]
-            self.index = self.files.index(first) if first in self.files else 0
-            if first not in self.files:
-                self.files.insert(0, first)
-                self.index = 0
+            files = images_in(os.path.dirname(first))
+            if first not in files:
+                files.insert(0, first)
+            index = files.index(first)
         else:
-            self.files, self.index = paths, 0
-        if not self.files:
+            files, index = paths, 0
+        if not files:                                          # keep what is on screen
             self.msg.set_text("No pictures found")
             return
+        self.files, self.index = files, index
         self.show(self.index)
         self.present()
 
@@ -238,7 +238,7 @@ class ViewWindow(Gtk.ApplicationWindow):
         if self.pixbuf is None:
             return 1.0
         aw, ah = max(1, self.scroll.get_width()), max(1, self.scroll.get_height())
-        return min(aw / self.pixbuf.get_width(), ah / self.pixbuf.get_height())
+        return min(aw / max(1, self.pixbuf.get_width()), ah / max(1, self.pixbuf.get_height()))
 
     def set_zoom(self, z):
         if self.pixbuf is None:
