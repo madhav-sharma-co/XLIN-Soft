@@ -11,8 +11,6 @@ Light and dark themes, glass panels, smooth animations, and a complete set of it
 ![Arch Linux](https://img.shields.io/badge/Arch_Linux-1793d1?logo=archlinux&logoColor=white)
 ![Hyprland](https://img.shields.io/badge/Hyprland-0.53%2B_(Lua%20ready)-58e1ff)
 
-<img width="1366" height="768" alt="Xlin-soft desktop, light theme" src="https://github.com/user-attachments/assets/bc88359e-5beb-4298-af17-064a573082b5" />
-<img width="1366" height="768" alt="Xlin-soft desktop, dark theme" src="https://github.com/user-attachments/assets/ff2e9042-aa86-46ce-9401-deab74657cf6" />
 
 </div>
 
