@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Xedit
+GenericName=Text Editor
+Comment=Edit text, notes, code and config files
+Exec=xlin-edit %F
+Icon=xlin-edit
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/markdown;text/x-python;text/x-shellscript;text/x-csrc;text/x-chdr;text/css;text/csv;text/html;text/x-log;text/x-readme;text/x-lua;application/json;application/xml;application/x-shellscript;application/x-yaml;application/toml;application/x-desktop;
+StartupWMClass=dev.xlin.Edit

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Xview
+GenericName=Image Viewer
+Comment=View, rotate and browse pictures
+Exec=xlin-view %F
+Icon=xlin-view
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;image/tiff;image/svg+xml;image/x-icon;image/avif;
+StartupWMClass=dev.xlin.View

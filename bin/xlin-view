@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""Xview - the Xlin-soft image viewer. Zoom, fit, rotate, flip, next/previous in the folder, slideshow,
+full screen, copy, set as wallpaper, move to the trash, picture info. Run: xlin view [images]
+
+Keys: Left/Right (or PgUp/PgDn) previous/next - + / - zoom - 0 fit - 1 actual size - R / Shift+R rotate -
+F or F11 or double-click full screen - Space slideshow - Delete trash - Ctrl+C copy - Ctrl+O open - I info.
+"""
+import faulthandler
+import os
+import sys
+import traceback
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+try:
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+except (ValueError, ImportError):
+    GdkPixbuf = None
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+sys.path[:0] = ["/usr/local/lib/xlin", os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib")]
+import xlin_ui  # noqa: E402
+
+try:
+    os.makedirs(os.path.expanduser("~/.cache/xlin"), exist_ok=True)
+    faulthandler.enable(open(os.path.expanduser("~/.cache/xlin/view-crash.log"), "a"))
+except OSError:
+    pass
+
+APP_ID = "dev.xlin.View"
+CSS_FILE = os.path.expanduser("~/.config/xlin/tools.css")
+EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".svg", ".ico", ".avif", ".heic", ".jxl"}
+SLIDE_SECONDS = 4
+
+
+def log(msg):
+    try:
+        with open(os.path.expanduser("~/.cache/xlin/view.log"), "a") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def natural_key(name):
+    import re
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+
+def images_in(folder):
+    try:
+        names = [n for n in os.listdir(folder) if os.path.splitext(n)[1].lower() in EXTS and not n.startswith(".")]
+    except OSError:
+        return []
+    return [os.path.join(folder, n) for n in sorted(names, key=natural_key)]
+
+
+def human(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+class ViewWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Xview")
+        self.set_default_size(*xlin_ui.default_size())
+        self.add_css_class("xlin-tools")
+        self.title_label = xlin_ui.titlebar(self, "Xview")
+        self.files, self.index = [], -1
+        self.pixbuf = None           # the picture as shown (after rotate / flip)
+        self.zoom = None             # None = fit the window; else a factor
+        self.fs = False
+        self.slide_id = 0
+        self.idle_id = 0
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.set_child(root)
+
+        self.bar = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=6,
+                               row_spacing=6, max_children_per_line=30, min_children_per_line=1)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(self.bar, f"set_margin_{m}")(8)
+        for label, tip, fn in (("Open", "Open pictures (Ctrl+O)", self.open_dialog),
+                               ("◀", "Previous (Left)", lambda: self.step(-1)),
+                               ("▶", "Next (Right)", lambda: self.step(1)),
+                               ("−", "Zoom out (-)", lambda: self.zoom_by(0.8)),
+                               ("+", "Zoom in (+)", lambda: self.zoom_by(1.25)),
+                               ("Fit", "Fit the window (0)", self.fit),
+                               ("100%", "Actual size (1)", lambda: self.set_zoom(1.0)),
+                               ("⟲", "Rotate left (Shift+R)", lambda: self.rotate(GdkPixbuf.PixbufRotation.COUNTERCLOCKWISE)),
+                               ("⟳", "Rotate right (R)", lambda: self.rotate(GdkPixbuf.PixbufRotation.CLOCKWISE)),
+                               ("Flip", "Mirror left to right", self.flip),
+                               ("Slideshow", "Play the pictures one after another (Space)", self.toggle_slide),
+                               ("Copy", "Copy the picture (Ctrl+C)", self.copy),
+                               ("Wallpaper", "Use this picture as the wallpaper", self.set_wallpaper),
+                               ("Info", "Size and details (I)", None),
+                               ("Trash", "Move to the trash (Delete)", self.trash),
+                               ("⛶", "Full screen (F)", self.toggle_fullscreen)):
+            if label == "Info":
+                b = Gtk.MenuButton(label="Info")
+                pop = Gtk.Popover()
+                self.info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=8, margin_bottom=8,
+                                        margin_start=10, margin_end=10)
+                pop.set_child(self.info_box)
+                pop.connect("show", lambda *_a: self.fill_info())
+                b.set_popover(pop)
+                self.info_btn = b
+            else:
+                b = Gtk.Button(label=label)
+                b.connect("clicked", lambda _b, f=fn: f())
+            b.set_tooltip_text(tip)
+            self.bar.append(b)
+        root.append(self.bar)
+
+        self.picture = Gtk.Picture()
+        self.picture.set_can_shrink(True)
+        self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self.picture.set_halign(Gtk.Align.FILL)
+        self.picture.set_valign(Gtk.Align.FILL)
+        self.scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        self.scroll.set_child(self.picture)
+        self.empty = Gtk.Label(label="Open a picture, or drop one here")
+        self.empty.add_css_class("tool-title")
+        self.stack = Gtk.Stack(vexpand=True)
+        self.stack.add_named(self.empty, "empty")
+        self.stack.add_named(self.scroll, "pic")
+        root.append(self.stack)
+        self.msg = Gtk.Label(label="", xalign=0, margin_start=10, margin_bottom=6, margin_top=4)
+        self.msg.add_css_class("tools-sub")
+        root.append(self.msg)
+
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda _g, n, _x, _y: n == 2 and self.toggle_fullscreen())
+        self.stack.add_controller(click)
+        wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        wheel.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        wheel.connect("scroll", self.on_wheel)
+        self.stack.add_controller(wheel)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", lambda *_a: self.wake())
+        self.add_controller(motion)
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", lambda _t, fl, _x, _y: (self.open_paths([f.get_path() for f in fl.get_files() if f.get_path()]), True)[1])
+        self.add_controller(drop)
+        self.stack.set_visible_child_name("empty")
+        if GdkPixbuf is None:
+            self.msg.set_text("GdkPixbuf is missing: rotate and flip are off")
+
+    # ---- loading
+    def open_paths(self, paths):
+        paths = [os.path.abspath(p) for p in paths if p]
+        if not paths:
+            return
+        first = paths[0]
+        if os.path.isdir(first):
+            self.files, self.index = images_in(first), 0
+        elif len(paths) == 1:                                  # one picture: browse its folder
+            self.files = images_in(os.path.dirname(first)) or [first]
+            self.index = self.files.index(first) if first in self.files else 0
+            if first not in self.files:
+                self.files.insert(0, first)
+                self.index = 0
+        else:
+            self.files, self.index = paths, 0
+        if not self.files:
+            self.msg.set_text("No pictures found")
+            return
+        self.show(self.index)
+        self.present()
+
+    def show(self, idx):
+        if not self.files:
+            return
+        self.index = idx % len(self.files)
+        path = self.files[self.index]
+        try:
+            if GdkPixbuf is not None:
+                pb = GdkPixbuf.Pixbuf.new_from_file(path)
+                pb = GdkPixbuf.Pixbuf.apply_embedded_orientation(pb) or pb
+                self.pixbuf = pb
+            else:
+                self.pixbuf = None
+            self.zoom = None
+            self.refresh(path)
+            self.stack.set_visible_child_name("pic")
+            self.msg.set_text("")
+        except (GLib.Error, OSError) as e:
+            self.pixbuf = None
+            log(f"{path}: {e}")
+            self.msg.set_text(f"Cannot open {os.path.basename(path)}: {getattr(e, 'message', e)}")
+        self.title_label.set_text(f"{os.path.basename(path)} ({self.index + 1}/{len(self.files)}) - Xview")
+
+    def refresh(self, path=None):
+        """Show the current picture at the current zoom."""
+        path = path or self.files[self.index]
+        if self.pixbuf is not None:
+            self.picture.set_paintable(Gdk.Texture.new_for_pixbuf(self.pixbuf))
+        else:
+            self.picture.set_filename(path)
+        self.apply_zoom()
+
+    def apply_zoom(self):
+        if self.zoom is None or self.pixbuf is None:
+            self.picture.set_size_request(-1, -1)
+            self.picture.set_can_shrink(True)
+            self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+            self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        else:
+            w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
+            self.picture.set_can_shrink(False)
+            self.picture.set_content_fit(Gtk.ContentFit.FILL)
+            self.picture.set_size_request(max(8, int(w * self.zoom)), max(8, int(h * self.zoom)))
+            self.picture.set_halign(Gtk.Align.CENTER)
+            self.picture.set_valign(Gtk.Align.CENTER)
+        if self.zoom is None:
+            self.picture.set_halign(Gtk.Align.FILL)
+            self.picture.set_valign(Gtk.Align.FILL)
+
+    # ---- actions
+    def step(self, d):
+        if self.files:
+            self.show(self.index + d)
+
+    def fit(self):
+        self.zoom = None
+        self.apply_zoom()
+
+    def current_zoom(self):
+        if self.zoom is not None:
+            return self.zoom
+        if self.pixbuf is None:
+            return 1.0
+        aw, ah = max(1, self.scroll.get_width()), max(1, self.scroll.get_height())
+        return min(aw / self.pixbuf.get_width(), ah / self.pixbuf.get_height())
+
+    def set_zoom(self, z):
+        if self.pixbuf is None:
+            return
+        self.zoom = max(0.05, min(16.0, z))
+        self.apply_zoom()
+        self.msg.set_text(f"{round(self.zoom * 100)}%")
+
+    def zoom_by(self, f):
+        self.set_zoom(self.current_zoom() * f)
+
+    def on_wheel(self, ctrl, _dx, dy):
+        if ctrl.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK:
+            self.zoom_by(0.9 if dy > 0 else 1.1)
+            return True
+        return False
+
+    def rotate(self, how):
+        if self.pixbuf is None or GdkPixbuf is None:
+            return
+        self.pixbuf = self.pixbuf.rotate_simple(how)
+        self.refresh()
+
+    def flip(self):
+        if self.pixbuf is None:
+            return
+        self.pixbuf = self.pixbuf.flip(True)
+        self.refresh()
+
+    def toggle_slide(self):
+        if self.slide_id:
+            GLib.source_remove(self.slide_id)
+            self.slide_id = 0
+            self.msg.set_text("Slideshow stopped")
+            return
+        if len(self.files) < 2:
+            self.msg.set_text("Open a folder with more pictures for a slideshow")
+            return
+        self.msg.set_text(f"Slideshow: a new picture every {SLIDE_SECONDS} s (Space stops it)")
+        self.slide_id = GLib.timeout_add_seconds(SLIDE_SECONDS, lambda: (self.step(1), True)[1])
+
+    def copy(self):
+        if self.pixbuf is None:
+            return
+        self.get_clipboard().set_texture(Gdk.Texture.new_for_pixbuf(self.pixbuf))
+        self.msg.set_text("Copied to the clipboard")
+
+    def set_wallpaper(self):
+        if not self.files:
+            return
+        xlin_ui.run(["xlin", "wallpaper", self.files[self.index]])
+        self.msg.set_text("Wallpaper set")
+
+    def trash(self):
+        if not self.files:
+            return
+        path = self.files[self.index]
+        try:
+            Gio.File.new_for_path(path).trash(None)
+        except GLib.Error as e:
+            self.msg.set_text(f"Could not move to the trash: {e.message}")
+            return
+        del self.files[self.index]
+        if not self.files:
+            self.stack.set_visible_child_name("empty")
+            self.title_label.set_text("Xview")
+            self.msg.set_text("Moved to the trash")
+            return
+        self.show(min(self.index, len(self.files) - 1))
+        self.msg.set_text(f"{os.path.basename(path)} moved to the trash")
+
+    def fill_info(self):
+        while (c := self.info_box.get_first_child()) is not None:
+            self.info_box.remove(c)
+        if not self.files:
+            self.info_box.append(Gtk.Label(label="No picture open"))
+            return
+        path = self.files[self.index]
+        lines = [("File", os.path.basename(path)), ("Folder", os.path.dirname(path))]
+        try:
+            lines.append(("Size", human(os.path.getsize(path))))
+        except OSError:
+            pass
+        if self.pixbuf is not None:
+            lines.append(("Pixels", f"{self.pixbuf.get_width()} × {self.pixbuf.get_height()}"))
+        lines.append(("Zoom", "fit" if self.zoom is None else f"{round(self.zoom * 100)}%"))
+        for k, v in lines:
+            lab = Gtk.Label(label=f"{k}:  {v}", xalign=0)
+            lab.set_selectable(True)
+            lab.set_wrap(True)
+            lab.set_max_width_chars(46)
+            self.info_box.append(lab)
+
+    def toggle_fullscreen(self):
+        self.fs = not self.fs
+        (self.fullscreen if self.fs else self.unfullscreen)()
+        self.bar.set_visible(not self.fs)
+        self.msg.set_visible(not self.fs)
+        self.set_cursor(None)
+        self.wake()
+
+    def wake(self):
+        self.set_cursor(None)
+        if self.idle_id:
+            GLib.source_remove(self.idle_id)
+            self.idle_id = 0
+        if self.fs:
+            self.idle_id = GLib.timeout_add(2500, lambda: (setattr(self, "idle_id", 0), self.set_cursor_from_name("none"), False)[2])
+
+    def open_dialog(self):
+        dlg = Gtk.FileDialog(title="Open pictures")
+        flt = Gtk.FileFilter()
+        flt.set_name("Pictures")
+        flt.add_mime_type("image/*")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+
+        def done(d, res):
+            try:
+                files = d.open_multiple_finish(res)
+            except GLib.Error:
+                return
+            self.open_paths([files.get_item(i).get_path() for i in range(files.get_n_items())])
+        dlg.open_multiple(self, None, done)
+
+    def on_key(self, _c, keyval, _code, state):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        k = Gdk.keyval_to_lower(keyval)
+        if ctrl:
+            if k == Gdk.KEY_c:
+                self.copy()
+            elif k == Gdk.KEY_o:
+                self.open_dialog()
+            else:
+                return False
+            return True
+        if keyval in (Gdk.KEY_Right, Gdk.KEY_Page_Down):
+            self.step(1)
+        elif keyval in (Gdk.KEY_Left, Gdk.KEY_Page_Up):
+            self.step(-1)
+        elif keyval == Gdk.KEY_Home:
+            self.show(0)
+        elif keyval == Gdk.KEY_End:
+            self.show(len(self.files) - 1)
+        elif keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+            self.zoom_by(1.25)
+        elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            self.zoom_by(0.8)
+        elif keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+            self.fit()
+        elif keyval == Gdk.KEY_1:
+            self.set_zoom(1.0)
+        elif k == Gdk.KEY_r and GdkPixbuf is not None:
+            self.rotate(GdkPixbuf.PixbufRotation.COUNTERCLOCKWISE if shift else GdkPixbuf.PixbufRotation.CLOCKWISE)
+        elif k in (Gdk.KEY_f,) or keyval == Gdk.KEY_F11:
+            self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_Escape and self.fs:
+            self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_space:
+            self.toggle_slide()
+        elif keyval == Gdk.KEY_Delete:
+            self.trash()
+        elif k == Gdk.KEY_i:
+            self.info_btn.popup()
+        else:
+            return False
+        return True
+
+
+class ViewApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.win = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        xlin_ui.live_css()
+        try:
+            with open(CSS_FILE, "rb") as f:
+                data = f.read()
+            prov = Gtk.CssProvider()
+            prov.load_from_data(data)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except Exception:       # noqa: BLE001
+            pass
+
+    def window(self):
+        if self.win is None:
+            self.win = ViewWindow(self)
+        return self.win
+
+    def do_activate(self):
+        try:
+            self.window().present()
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+    def do_open(self, files, _n, _hint):
+        try:
+            win = self.window()
+            win.present()
+            win.open_paths([f.get_path() for f in files if f.get_path()])
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+
+if __name__ == "__main__":
+    sys.exit(ViewApp().run(sys.argv))

@@ -976,7 +976,7 @@ DEFAULT_KINDS = [("browser", "Web browser", "x-scheme-handler/https"),
                  ("mail", "Email", "x-scheme-handler/mailto")]
 TERMINALS = [("xlin", "Xlin-soft Terminal"), ("kitty", "Kitty"), ("foot", "Foot"), ("alacritty", "Alacritty"),
              ("wezterm", "WezTerm"), ("gnome-terminal", "GNOME Terminal"), ("konsole", "Konsole"), ("xterm", "XTerm")]
-XLIN_TOOLS = [("dev.xlin.Files", "Files"), ("dev.xlin.Media", "Media"), ("dev.xlin.Store", "Store"),
+XLIN_TOOLS = [("dev.xlin.Files", "Files"), ("dev.xlin.Media", "Media"), ("dev.xlin.Edit", "Xedit"), ("dev.xlin.View", "Xview"), ("dev.xlin.Store", "Store"),
               ("dev.xlin.Terminal", "Terminal"), ("dev.xlin.Notes", "Notes"), ("dev.xlin.Calculator", "Calculator"),
               ("dev.xlin.Calendar", "Calendar"), ("dev.xlin.Clock", "Clock"), ("dev.xlin.Screenshot", "Screenshot"),
               ("dev.xlin.Monitor", "SysMon"), ("dev.xlin.Debug", "SysDeb")]

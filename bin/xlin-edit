@@ -1,0 +1,710 @@
+#!/usr/bin/env python3
+"""Xedit - the Xlin-soft text editor. Tabs, syntax colours, find and replace, go to line, word wrap, zoom,
+unsaved-changes protection. Run: xlin edit [files]
+
+Keys: Ctrl+N new - Ctrl+O open - Ctrl+S save - Ctrl+Shift+S save as - Ctrl+W close tab - Ctrl+F find -
+Ctrl+H replace - Ctrl+G go to line - Ctrl+Z / Ctrl+Shift+Z undo / redo - Ctrl + / - / 0 zoom - F11 full screen.
+Syntax colours need gtksourceview5 (sudo pacman -S gtksourceview5); without it the editor still works.
+"""
+import faulthandler
+import os
+import sys
+import traceback
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+
+sys.path[:0] = ["/usr/local/lib/xlin", os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib")]
+import xlin_ui  # noqa: E402
+
+try:
+    os.makedirs(os.path.expanduser("~/.cache/xlin"), exist_ok=True)
+    faulthandler.enable(open(os.path.expanduser("~/.cache/xlin/edit-crash.log"), "a"))
+except OSError:
+    pass
+
+try:
+    gi.require_version("GtkSource", "5")
+    from gi.repository import GtkSource  # noqa: E402
+    GtkSource.init()
+except Exception:       # noqa: BLE001
+    GtkSource = None
+
+APP_ID = "dev.xlin.Edit"
+STATE = os.path.expanduser("~/.config/xlin/state")
+CSS_FILE = os.path.expanduser("~/.config/xlin/tools.css")
+MAX_BYTES = 40 * 1024 * 1024
+FONT = "JetBrainsMono Nerd Font, JetBrains Mono, DejaVu Sans Mono, monospace"
+
+
+def log(msg):
+    try:
+        with open(os.path.expanduser("~/.cache/xlin/edit.log"), "a") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def read_state(name, default=""):
+    try:
+        with open(os.path.join(STATE, name)) as f:
+            return f.read().strip() or default
+    except OSError:
+        return default
+
+
+def write_state(name, value):
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(os.path.join(STATE, name), "w") as f:
+            f.write(str(value))
+    except OSError:
+        pass
+
+
+def decode_text(data):
+    """(text, encoding) or (None, None) for a binary file."""
+    if b"\0" in data[:8192]:
+        return None, None
+    for enc in ("utf-8-sig", "utf-8"):
+        try:
+            return data.decode(enc), "UTF-8"
+        except UnicodeDecodeError:
+            pass
+    return data.decode("latin-1"), "Latin-1"
+
+
+def find_in(text, needle, start, backwards=False, case=False):
+    """Index of the next match of needle in text from start (wrapping round), or -1."""
+    if not needle:
+        return -1
+    hay, n = (text, needle) if case else (text.lower(), needle.lower())
+    if backwards:
+        i = hay.rfind(n, 0, max(0, start))
+        return i if i >= 0 else hay.rfind(n)
+    i = hay.find(n, start)
+    return i if i >= 0 else hay.find(n)
+
+
+class Doc:
+    """One open file (one tab)."""
+
+    def __init__(self, path=None):
+        self.path = path
+        self.encoding = "UTF-8"
+        if GtkSource is not None:
+            self.buffer = GtkSource.Buffer()
+            self.buffer.set_highlight_syntax(True)
+            self.view = GtkSource.View(buffer=self.buffer)
+            self.view.set_show_line_numbers(True)
+            self.view.set_highlight_current_line(True)
+            self.view.set_auto_indent(True)
+            self.view.set_indent_on_tab(True)
+            self.view.set_tab_width(4)
+            self.view.set_insert_spaces_instead_of_tabs(True)
+            self.view.set_smart_home_end(GtkSource.SmartHomeEndType.BEFORE)
+        else:
+            self.buffer = Gtk.TextBuffer()
+            self.view = Gtk.TextView(buffer=self.buffer)
+        self.buffer.set_enable_undo(True)
+        self.view.add_css_class("xedit-text")
+        self.view.set_top_margin(8)
+        self.view.set_bottom_margin(8)
+        self.view.set_left_margin(8)
+        self.view.set_monospace(True)
+        self.scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        self.scroll.set_child(self.view)
+        self.modified = False
+        self.title = Gtk.Label(xalign=0)
+        self.title.set_ellipsize(Pango.EllipsizeMode.END)
+        self.title.set_max_width_chars(22)
+        self.buffer.connect("changed", self._changed)
+        self.loading = False
+        self.refresh_title()
+
+    def _changed(self, _b):
+        if not self.loading and not self.modified:
+            self.modified = True
+            self.refresh_title()
+
+    def name(self):
+        return os.path.basename(self.path) if self.path else "Untitled"
+
+    def refresh_title(self):
+        self.title.set_text(("● " if self.modified else "") + self.name())
+        self.title.set_tooltip_text(self.path or "Not saved yet")
+
+    def set_text(self, text):
+        self.loading = True
+        self.buffer.begin_irreversible_action() if hasattr(self.buffer, "begin_irreversible_action") else None
+        self.buffer.set_text(text)
+        if hasattr(self.buffer, "end_irreversible_action"):
+            self.buffer.end_irreversible_action()
+        self.buffer.place_cursor(self.buffer.get_start_iter())
+        self.loading = False
+        self.modified = False
+        self.refresh_title()
+
+    def get_text(self):
+        return self.buffer.get_text(self.buffer.get_start_iter(), self.buffer.get_end_iter(), False)
+
+    def guess_language(self):
+        if GtkSource is None:
+            return "Plain text"
+        mgr = GtkSource.LanguageManager.get_default()
+        lang = None
+        if self.path:
+            f = Gio.File.new_for_path(self.path)
+            try:
+                info = f.query_info("standard::content-type", 0, None)
+                lang = mgr.guess_language(self.path, info.get_content_type())
+            except GLib.Error:
+                lang = mgr.guess_language(self.path, None)
+        self.buffer.set_language(lang)
+        return lang.get_name() if lang else "Plain text"
+
+    def load(self, path):
+        size = os.path.getsize(path)
+        if size > MAX_BYTES:
+            raise ValueError(f"{os.path.basename(path)} is too big for a text editor ({size // 1048576} MB)")
+        with open(path, "rb") as f:
+            data = f.read()
+        text, enc = decode_text(data)
+        if text is None:
+            raise ValueError(f"{os.path.basename(path)} is not a text file")
+        self.path, self.encoding = path, enc
+        self.set_text(text)
+
+    def save(self, path=None):
+        path = path or self.path
+        text = self.get_text()
+        data = text.encode("latin-1", "replace") if self.encoding == "Latin-1" else text.encode("utf-8")
+        tmp = path + ".xedit-tmp"
+        with open(tmp, "wb") as f:                  # write beside, then rename: a crash never half-saves a file
+            f.write(data)
+        try:
+            os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+        self.path = path
+        self.modified = False
+        self.refresh_title()
+
+
+class EditWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Xedit")
+        self.set_default_size(*xlin_ui.default_size())
+        self.add_css_class("xlin-tools")
+        self.title_label = xlin_ui.titlebar(self, "Xedit")
+        self.docs = []
+        self.zoom = 11
+        try:
+            self.zoom = int(read_state("edit_zoom", "11"))
+        except ValueError:
+            pass
+        self.wrap = read_state("edit_wrap", "off") == "on"
+        self.fs = False
+
+        self.font_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.font_css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
+        self.apply_font()
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_child(root)
+
+        # ---- tool row
+        bar = Gtk.Box(spacing=6)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(bar, f"set_margin_{m}")(8)
+        for label, tip, fn in (("New", "New file (Ctrl+N)", self.new_doc), ("Open", "Open files (Ctrl+O)", self.open_dialog),
+                               ("Save", "Save (Ctrl+S)", lambda: self.save_current(False)),
+                               ("Save as", "Save a copy under a new name (Ctrl+Shift+S)", lambda: self.save_current(True))):
+            b = Gtk.Button(label=label)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda _b, f=fn: f())
+            bar.append(b)
+        bar.append(Gtk.Box(hexpand=True))
+        for label, tip, fn in (("Undo", "Undo (Ctrl+Z)", self.undo), ("Redo", "Redo (Ctrl+Shift+Z)", self.redo),
+                               ("Find", "Find and replace (Ctrl+F)", lambda: self.show_find(False))):
+            b = Gtk.Button(label=label)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", lambda _b, f=fn: f())
+            bar.append(b)
+        self.wrap_btn = Gtk.ToggleButton(label="Wrap")
+        self.wrap_btn.set_tooltip_text("Wrap long lines")
+        self.wrap_btn.set_active(self.wrap)
+        self.wrap_btn.connect("toggled", lambda b: self.set_wrap(b.get_active()))
+        bar.append(self.wrap_btn)
+        root.append(bar)
+
+        # ---- find / replace bar
+        self.find_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.find_bar.set_margin_start(8)
+        self.find_bar.set_margin_end(8)
+        self.find_bar.set_visible(False)
+        r1 = Gtk.Box(spacing=6)
+        self.find_entry = Gtk.SearchEntry(hexpand=True, placeholder_text="Find")
+        self.find_entry.connect("activate", lambda _e: self.find_next(False))
+        self.find_entry.connect("search-changed", lambda _e: self.find_next(False, keep=True))
+        r1.append(self.find_entry)
+        for label, fn in (("Previous", lambda: self.find_next(True)), ("Next", lambda: self.find_next(False))):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, f=fn: f())
+            r1.append(b)
+        self.case_btn = Gtk.ToggleButton(label="Aa")
+        self.case_btn.set_tooltip_text("Match case")
+        r1.append(self.case_btn)
+        close = Gtk.Button(label="✕")
+        close.connect("clicked", lambda _b: self.hide_find())
+        r1.append(close)
+        self.find_bar.append(r1)
+        self.replace_row = Gtk.Box(spacing=6)
+        self.replace_entry = Gtk.Entry(hexpand=True, placeholder_text="Replace with")
+        self.replace_row.append(self.replace_entry)
+        for label, fn in (("Replace", self.replace_one), ("Replace all", self.replace_all)):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, f=fn: f())
+            self.replace_row.append(b)
+        self.find_bar.append(self.replace_row)
+        self.find_msg = Gtk.Label(label="", xalign=0)
+        self.find_msg.add_css_class("tools-sub")
+        self.find_bar.append(self.find_msg)
+        root.append(self.find_bar)
+
+        # ---- tabs
+        self.book = Gtk.Notebook(vexpand=True, scrollable=True)
+        self.book.connect("switch-page", lambda _b, _p, _n: GLib.idle_add(self.on_switch))
+        root.append(self.book)
+
+        # ---- status row
+        st = Gtk.Box(spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(st, f"set_margin_{m}")(6)
+        self.pos_btn = Gtk.MenuButton(label="Ln 1, Col 1")
+        self.pos_btn.add_css_class("flat")
+        gpop = Gtk.Popover()
+        gbox = Gtk.Box(spacing=6, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+        self.goto_entry = Gtk.Entry(placeholder_text="Line number")
+        self.goto_entry.connect("activate", lambda _e: (self.goto_line(), gpop.popdown()))
+        gbox.append(self.goto_entry)
+        gpop.set_child(gbox)
+        self.pos_btn.set_popover(gpop)
+        st.append(self.pos_btn)
+        self.lang_lab = Gtk.Label(label="Plain text")
+        self.lang_lab.add_css_class("tools-sub")
+        st.append(self.lang_lab)
+        self.enc_lab = Gtk.Label(label="UTF-8")
+        self.enc_lab.add_css_class("tools-sub")
+        st.append(self.enc_lab)
+        st.append(Gtk.Box(hexpand=True))
+        self.msg = Gtk.Label(label="")
+        self.msg.add_css_class("tools-sub")
+        st.append(self.msg)
+        self.zoom_lab = Gtk.Label(label="")
+        self.zoom_lab.add_css_class("tools-sub")
+        st.append(self.zoom_lab)
+        root.append(st)
+        if GtkSource is None:
+            self.msg.set_text("No syntax colours: sudo pacman -S gtksourceview5")
+        self.update_zoom_label()
+
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", lambda _t, fl, _x, _y: (self.open_paths([f.get_path() for f in fl.get_files() if f.get_path()]), True)[1])
+        self.add_controller(drop)
+        self.connect("close-request", self.on_close_request)
+        self.apply_scheme()
+        xlin_ui.live_css()
+
+    # ---- look
+    def apply_font(self):
+        self.font_css.load_from_string(f".xedit-text {{ font-family: {FONT}; font-size: {self.zoom}pt; }}")
+
+    def update_zoom_label(self):
+        self.zoom_lab.set_text(f"{round(self.zoom / 11 * 100)}%")
+
+    def apply_scheme(self):
+        if GtkSource is None:
+            return
+        dark = read_state("theme", "light") == "dark"
+        mgr = GtkSource.StyleSchemeManager.get_default()
+        ids = set(mgr.get_scheme_ids())
+        for sid in (("Adwaita-dark", "oblivion", "cobalt", "solarized-dark") if dark else ("Adwaita", "classic", "tango", "solarized-light")):
+            if sid in ids:
+                scheme = mgr.get_scheme(sid)
+                for d in self.docs:
+                    d.buffer.set_style_scheme(scheme)
+                self.scheme = scheme
+                return
+
+    # ---- documents
+    def current(self):
+        i = self.book.get_current_page()
+        return self.docs[i] if 0 <= i < len(self.docs) else None
+
+    def add_doc(self, doc):
+        self.docs.append(doc)
+        tab = Gtk.Box(spacing=6)
+        tab.append(doc.title)
+        x = Gtk.Button(label="✕")
+        x.add_css_class("flat")
+        x.connect("clicked", lambda _b, d=doc: self.close_doc(d))
+        tab.append(x)
+        self.book.append_page(doc.scroll, tab)
+        self.book.set_tab_reorderable(doc.scroll, True)
+        self.book.set_current_page(len(self.docs) - 1)
+        doc.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR if self.wrap else Gtk.WrapMode.NONE)
+        if hasattr(self, "scheme") and GtkSource is not None:
+            doc.buffer.set_style_scheme(self.scheme)
+        doc.buffer.connect("notify::cursor-position", lambda *_a: self.update_status())
+        doc.buffer.connect("changed", lambda *_a: self.update_status())
+        doc.view.grab_focus()
+        self.on_switch()
+
+    def new_doc(self):
+        self.add_doc(Doc())
+
+    def open_paths(self, paths):
+        for p in paths:
+            if not p:
+                continue
+            p = os.path.abspath(p)
+            existing = next((d for d in self.docs if d.path == p), None)
+            if existing is not None:
+                self.book.set_current_page(self.docs.index(existing))
+                continue
+            doc = Doc()
+            try:
+                if os.path.exists(p):
+                    doc.load(p)
+                else:
+                    doc.path = p              # a file that does not exist yet: saved on the first Ctrl+S
+                    doc.refresh_title()
+            except (OSError, ValueError) as e:
+                self.msg.set_text(str(e))
+                log(f"open {p}: {e}")
+                continue
+            doc.guess_language()
+            # replace an untouched, empty "Untitled" tab instead of piling up tabs
+            if len(self.docs) == 1 and not self.docs[0].path and not self.docs[0].modified and not self.docs[0].get_text():
+                self.close_doc(self.docs[0], force=True)
+            self.add_doc(doc)
+        self.present()
+
+    def open_dialog(self):
+        dlg = Gtk.FileDialog(title="Open files")
+
+        def done(d, res):
+            try:
+                files = d.open_multiple_finish(res)
+            except GLib.Error:
+                return
+            self.open_paths([files.get_item(i).get_path() for i in range(files.get_n_items())])
+        dlg.open_multiple(self, None, done)
+
+    def save_current(self, as_new, then=None, doc=None):
+        doc = doc or self.current()
+        if doc is None:
+            return
+        if as_new or not doc.path:
+            dlg = Gtk.FileDialog(title="Save as")
+            dlg.set_initial_name(doc.name())
+
+            def done(d, res):
+                try:
+                    f = d.save_finish(res)
+                except GLib.Error:
+                    return
+                self.write_doc(doc, f.get_path(), then)
+            dlg.save(self, None, done)
+        else:
+            self.write_doc(doc, doc.path, then)
+
+    def write_doc(self, doc, path, then=None):
+        try:
+            doc.save(path)
+        except OSError as e:
+            self.msg.set_text(f"Could not save: {e.strerror or e}")
+            log(f"save {path}: {e}")
+            return
+        doc.guess_language()
+        self.msg.set_text(f"Saved {doc.name()}")
+        self.on_switch()
+        if then:
+            then()
+
+    def close_doc(self, doc, force=False):
+        if doc.modified and not force:
+            self.ask_save(doc, lambda: self.close_doc(doc, True))
+            return
+        i = self.docs.index(doc)
+        self.book.remove_page(i)
+        self.docs.remove(doc)
+        if not self.docs:
+            self.new_doc()
+
+    def ask_save(self, doc, proceed):
+        try:
+            dlg = Gtk.AlertDialog()
+            dlg.set_message(f"Save changes to {doc.name()}?")
+            dlg.set_detail("Your changes are lost if you do not save them.")
+            dlg.set_buttons(["Cancel", "Do not save", "Save"])
+            dlg.set_cancel_button(0)
+            dlg.set_default_button(2)
+
+            def done(d, res):
+                try:
+                    pick = d.choose_finish(res)
+                except GLib.Error:
+                    return
+                if pick == 1:
+                    proceed()
+                elif pick == 2:
+                    self.save_current(False, proceed, doc)
+            dlg.choose(self, None, done)
+        except (AttributeError, TypeError):
+            proceed()
+
+    def on_close_request(self, *_a):
+        dirty = [d for d in self.docs if d.modified]
+        if not dirty:
+            return False
+        self.book.set_current_page(self.docs.index(dirty[0]))
+
+        def go():
+            dirty[0].modified = False
+            self.close()
+        self.ask_save(dirty[0], go)
+        return True
+
+    # ---- status
+    def on_switch(self):
+        d = self.current()
+        if d is None:
+            return False
+        self.lang_lab.set_text(d.guess_language() if d.path else "Plain text")
+        self.enc_lab.set_text(d.encoding)
+        self.title_label.set_text(("● " if d.modified else "") + d.name() + " - Xedit")
+        self.update_status()
+        return False
+
+    def update_status(self):
+        d = self.current()
+        if d is None:
+            return
+        it = d.buffer.get_iter_at_mark(d.buffer.get_insert())
+        self.pos_btn.set_label(f"Ln {it.get_line() + 1}, Col {it.get_line_offset() + 1}")
+        self.title_label.set_text(("● " if d.modified else "") + d.name() + " - Xedit")
+
+    def goto_line(self):
+        d = self.current()
+        try:
+            n = int(self.goto_entry.get_text().strip())
+        except ValueError:
+            return
+        n = max(1, min(n, d.buffer.get_line_count()))
+        ok, it = d.buffer.get_iter_at_line(n - 1)
+        d.buffer.place_cursor(it)
+        d.view.scroll_to_iter(it, 0.1, True, 0.0, 0.5)
+        d.view.grab_focus()
+
+    # ---- edit
+    def undo(self):
+        d = self.current()
+        if d and d.buffer.get_can_undo():
+            d.buffer.undo()
+
+    def redo(self):
+        d = self.current()
+        if d and d.buffer.get_can_redo():
+            d.buffer.redo()
+
+    def set_wrap(self, on):
+        self.wrap = on
+        write_state("edit_wrap", "on" if on else "off")
+        for d in self.docs:
+            d.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR if on else Gtk.WrapMode.NONE)
+
+    def set_zoom(self, size):
+        self.zoom = max(6, min(40, size))
+        write_state("edit_zoom", self.zoom)
+        self.apply_font()
+        self.update_zoom_label()
+
+    # ---- find / replace
+    def show_find(self, replace):
+        self.find_bar.set_visible(True)
+        self.replace_row.set_visible(replace)
+        d = self.current()
+        if d is not None and d.buffer.get_has_selection():
+            a, b = d.buffer.get_selection_bounds()
+            sel = d.buffer.get_text(a, b, False)
+            if "\n" not in sel:
+                self.find_entry.set_text(sel)
+        self.find_entry.grab_focus()
+        self.find_entry.select_region(0, -1)
+
+    def hide_find(self):
+        self.find_bar.set_visible(False)
+        d = self.current()
+        if d:
+            d.view.grab_focus()
+
+    def find_next(self, backwards, keep=False):
+        d = self.current()
+        needle = self.find_entry.get_text()
+        if d is None or not needle:
+            self.find_msg.set_text("")
+            return False
+        text = d.get_text()
+        buf = d.buffer
+        if keep:                                    # typing: stay on the current match
+            start = buf.get_iter_at_mark(buf.get_selection_bound() if buf.get_has_selection() else buf.get_insert()).get_offset()
+        elif backwards:
+            start = buf.get_iter_at_mark(buf.get_insert()).get_offset()
+            if buf.get_has_selection():
+                start = min(buf.get_iter_at_mark(buf.get_insert()).get_offset(), buf.get_iter_at_mark(buf.get_selection_bound()).get_offset())
+        else:
+            start = max(buf.get_iter_at_mark(buf.get_insert()).get_offset(), buf.get_iter_at_mark(buf.get_selection_bound()).get_offset())
+        i = find_in(text, needle, start, backwards, self.case_btn.get_active())
+        if i < 0:
+            self.find_msg.set_text("Not found")
+            return False
+        a = buf.get_iter_at_offset(i)
+        b = buf.get_iter_at_offset(i + len(needle))
+        buf.select_range(a, b)
+        d.view.scroll_to_iter(a, 0.1, True, 0.0, 0.5)
+        total = (text.count(needle) if self.case_btn.get_active() else text.lower().count(needle.lower()))
+        self.find_msg.set_text(f"{total} match{'es' if total != 1 else ''}")
+        return False
+
+    def replace_one(self):
+        d = self.current()
+        if d is None:
+            return
+        needle = self.find_entry.get_text()
+        if d.buffer.get_has_selection():
+            a, b = d.buffer.get_selection_bounds()
+            cur = d.buffer.get_text(a, b, False)
+            same = cur == needle if self.case_btn.get_active() else cur.lower() == needle.lower()
+            if same:
+                d.buffer.delete(a, b)
+                d.buffer.insert(a, self.replace_entry.get_text())
+        self.find_next(False)
+
+    def replace_all(self):
+        d = self.current()
+        needle = self.find_entry.get_text()
+        if d is None or not needle:
+            return
+        text = d.get_text()
+        if self.case_btn.get_active():
+            count = text.count(needle)
+            new = text.replace(needle, self.replace_entry.get_text())
+        else:
+            import re
+            new, count = re.subn(re.escape(needle), lambda _m: self.replace_entry.get_text(), text, flags=re.I)
+        if count:
+            d.buffer.begin_user_action()
+            d.buffer.set_text(new)
+            d.buffer.end_user_action()
+        self.find_msg.set_text(f"Replaced {count}")
+
+    # ---- keys
+    def on_key(self, _c, keyval, _code, state):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        if keyval == Gdk.KEY_F11:
+            self.fs = not self.fs
+            (self.fullscreen if self.fs else self.unfullscreen)()
+            return True
+        if keyval == Gdk.KEY_Escape and self.find_bar.get_visible():
+            self.hide_find()
+            return True
+        if not ctrl:
+            return False
+        k = Gdk.keyval_to_lower(keyval)
+        if k == Gdk.KEY_n:
+            self.new_doc()
+        elif k == Gdk.KEY_o:
+            self.open_dialog()
+        elif k == Gdk.KEY_s:
+            self.save_current(shift)
+        elif k == Gdk.KEY_w:
+            d = self.current()
+            d and self.close_doc(d)
+        elif k == Gdk.KEY_f:
+            self.show_find(False)
+        elif k == Gdk.KEY_h:
+            self.show_find(True)
+        elif k == Gdk.KEY_g:
+            self.pos_btn.popup()
+            self.goto_entry.grab_focus()
+        elif k == Gdk.KEY_z:
+            (self.redo if shift else self.undo)()
+        elif k == Gdk.KEY_y:
+            self.redo()
+        elif k in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+            self.set_zoom(self.zoom + 1)
+        elif k in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            self.set_zoom(self.zoom - 1)
+        elif k in (Gdk.KEY_0, Gdk.KEY_KP_0):
+            self.set_zoom(11)
+        else:
+            return False
+        return True
+
+
+class EditApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.win = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        xlin_ui.live_css()
+        try:
+            with open(CSS_FILE, "rb") as f:
+                data = f.read()
+            prov = Gtk.CssProvider()
+            prov.load_from_data(data)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except Exception:       # noqa: BLE001
+            pass
+
+    def window(self):
+        if self.win is None:
+            self.win = EditWindow(self)
+        return self.win
+
+    def do_activate(self):
+        try:
+            win = self.window()
+            if not win.docs:
+                win.new_doc()
+            win.present()
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+    def do_open(self, files, _n, _hint):
+        try:
+            win = self.window()
+            if not win.docs:
+                win.new_doc()
+            win.open_paths([f.get_path() for f in files if f.get_path()])
+        except Exception:       # noqa: BLE001
+            log(traceback.format_exc())
+
+
+if __name__ == "__main__":
+    sys.exit(EditApp().run(sys.argv))

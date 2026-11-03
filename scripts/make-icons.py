@@ -104,11 +104,20 @@ def media():
             '<path d="M54 46l30 18-30 18z" fill="#e5484d"/>')
 
 
-def book():
-    return ('<path d="M24 38c14-6 28-6 40 4v54c-12-10-26-10-40-4z" fill="#fff"/>'
-            '<path d="M104 38c-14-6-28-6-40 4v54c12-10 26-10 40-4z" fill="#fff" fill-opacity=".86"/>'
-            '<path d="M64 42v54" stroke="#3b6df0" stroke-width="3" stroke-opacity=".5"/>'
-            '<path d="M34 52c8-2 16-1 24 2M34 64c8-2 16-1 24 2M70 54c8-3 16-4 24-2M70 66c8-3 16-4 24-2" stroke="#3b6df0" stroke-width="3.4" stroke-linecap="round" stroke-opacity=".55" fill="none"/>')
+def xsign():
+    return ('<path d="M38 38L90 90M90 38L38 90" stroke="#fff" stroke-width="15" stroke-linecap="round" fill="none"/>')
+
+
+def pencil():
+    return ('<path d="M34 94l4-18 38-38 14 14-38 38z" fill="#fff"/>'
+            '<path d="M80 34l8-8a6 6 0 0 1 8.5 0l5.5 5.5a6 6 0 0 1 0 8.5l-8 8z" fill="#fff" fill-opacity=".8"/>'
+            '<path d="M34 94l4-18 14 14z" fill="#2f9e5f"/>')
+
+
+def picture():
+    return ('<rect x="22" y="30" width="84" height="68" rx="10" fill="#fff"/>'
+            '<circle cx="46" cy="52" r="8" fill="#f5a623"/>'
+            '<path d="M26 92l26-28 18 18 12-12 24 22z" fill="#2fa6b8"/>')
 
 
 def debug():
@@ -131,7 +140,9 @@ ICONS = {
     "xlin-calendar": ("#f5f6fa", "#d9dce6", calendar()),
     "xlin-files": ("#5ac8fa", "#0a7cff", folder()),
     "xlin-tools": ("#bf7bff", "#5a57e0", tools()),
-    "xlin-manual": ("#7fd6ff", "#3b6df0", book()),
+    "xlin-manual": ("#7fd6ff", "#3b6df0", xsign()),
+    "xlin-edit": ("#6be39a", "#1f9d5f", pencil()),
+    "xlin-view": ("#7dd3fc", "#2563eb", picture()),
     "xlin-welcome": ("#ff8fb1", "#ff8a3d", sparkle()),
     "xlin-monitor": ("#5ee0a0", "#16a05f", monitor()),
     "xlin-terminal": ("#5b6272", "#23262f", terminal()),

@@ -1737,6 +1737,8 @@ MANUAL_TABS = [
         ("p", "Files: browse, copy, move, tag and preview.\n"
               "Terminal: a full terminal with tabs, search and your fonts.\n"
               "Media: music and video with playlist, subtitles, speed, equalizer and full screen (press F).\n"
+              "Xedit: text editor with tabs, syntax colours, find and replace.\n"
+              "Xview: image viewer with zoom, rotate, slideshow and full screen.\n"
               "Store: find and install apps and updates.\n"
               "SysMon: live CPU, memory and apps, and end a stuck one.\n"
               "SysDeb: health checks, logs and Fix everything.\n"

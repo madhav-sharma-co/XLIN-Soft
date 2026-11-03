@@ -22,6 +22,7 @@ echo kitty >"$XLIN_HOME/state/terminal"
 $X defaults reset >/dev/null
 chk "reset: Files is the folder app"      "grep -q 'inode/directory=dev.xlin.Files.desktop' $HOME/mime.log"
 chk "reset: Media plays audio and video"  "grep -q 'audio/mpeg=dev.xlin.Media.desktop' $HOME/mime.log && grep -q 'video/webm=dev.xlin.Media.desktop' $HOME/mime.log"
+chk "reset: Xedit edits text, Xview shows pictures" "grep -q 'text/plain=dev.xlin.Edit.desktop' $HOME/mime.log && grep -q 'application/json=dev.xlin.Edit.desktop' $HOME/mime.log && grep -q 'image/png=dev.xlin.View.desktop' $HOME/mime.log"
 chk "reset: Xlin-soft Terminal again"     "[[ ! -f $XLIN_HOME/state/terminal ]]"
 $X defaults set browser firefox >/dev/null
 chk "set browser covers http, https, html" "grep -q 'x-scheme-handler/http=firefox.desktop' $HOME/mime.log && grep -q 'x-scheme-handler/https=firefox.desktop' $HOME/mime.log && grep -q 'text/html=firefox.desktop' $HOME/mime.log"

@@ -420,3 +420,15 @@ def app_menu(parent, x, y, aid, refresh=None, hold=None):
     if hold:
         hold(True)
     pop.popup()
+
+
+def default_size(w=920, h=640):
+    """(width, height) for a normal app window: the size of Settings, never more than 85% of the screen."""
+    w, h = scaled(w), scaled(h)
+    try:
+        from gi.repository import Gdk
+        geo = Gdk.Display.get_default().get_monitors().get_item(0).get_geometry()
+        w, h = min(w, int(geo.width * 0.85)), min(h, int(geo.height * 0.85))
+    except Exception:       # noqa: BLE001
+        pass
+    return w, h

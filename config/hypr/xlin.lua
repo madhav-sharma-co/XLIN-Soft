@@ -62,7 +62,7 @@ local function app(name, extra)
     hl.window_rule(rule)
 end
 for _, name in ipairs({ "Settings", "Debug", "Media", "Store", "Monitor", "Welcome", "Calculator", "Notes", "Clock",
-                        "Calendar", "Screenshot", "Files", "Desktop", "Manual" }) do
+                        "Calendar", "Screenshot", "Files", "Desktop", "Manual", "Edit", "View", "Read" }) do
     app(name)
 end
 -- menus: they open in place, top right under the bar
