@@ -17,7 +17,7 @@ Light and dark themes, glass panels, smooth animations, and a complete set of it
 ## Highlights
 
 - **One install, everything set up.** The installer and every update bring the system and all packages Xlin-soft needs up to date (`pacman -Syu`) and install the missing ones, hook Xlin-soft into your Hyprland config and apply the theme. New dependencies arrive by themselves. To install only what is missing, run with `XLIN_NO_UPGRADE=1`.
-- **Its own apps.** Settings, Files, Terminal, Store, Media, SysMon, Notes, Clock, Calendar, Calculator, Screenshot, Welcome and a debug tool, all in one look.
+- **Its own apps.** Settings, Files, Terminal, Store, Media, Xedit (text editor), Xview (image viewer), Xread (PDF reader), Xman (manual), SysMon, Notes, Clock, Calendar, Calculator, Screenshot, Welcome and SysDeb, all in one look.
 - **Light and dark, everywhere.** One switch (Super+D) restyles every Xlin-soft app, every menu, the bars, the lock screen and other GTK apps, at once.
 - **Smooth.** Gentle window, menu and workspace animations (Off, Subtle or Smooth in Settings). Settings, Files, Store and the Launcher wait out of sight, so they open instantly.
 - **Flexible.** Change the system font or text size and every window, panel and widget grows to fit.
@@ -25,7 +25,7 @@ Light and dark themes, glass panels, smooth animations, and a complete set of it
 
 ## Install
 
-    git clone https://github.com/madhav-sharma-co/XLIN.git ~/.Xlin-soft
+    git clone https://github.com/madhav-sharma-co/XLIN-Soft.git ~/.Xlin-soft
     cd ~/.Xlin-soft
     ./install.sh          # asks for your password to install packages
     hyprctl reload        # or log out and back in
@@ -51,16 +51,16 @@ you have `paru` or `yay`).
 | Top bar         | X (Xman, the Xlin-soft Manual), current app, settings, tools, Wi-Fi and Bluetooth (click for a quick connect menu), sound, battery, date and time, power and control panel. Every button can be hidden |
 | Launcher        | Super+Space: search, pinned apps, recent apps and the full All apps list. Right-click an app: Open, pin to the Run Bar, pin to the Launcher |
 | Run Bar         | The bottom bar with pinned and running apps and the Launcher button. It is always there, even with nothing open. Starts with six Xlin-soft apps pinned (the Launcher has twelve, the desktop two); `xlin pins reset` brings the defaults back |
-| Control panel   | Wi-Fi, Bluetooth, airplane mode, dark mode, night light and do not disturb (switched-on buttons are filled with the accent colour), volume, brightness, power mode and notifications (Super+C) |
+| Control panel   | Wi-Fi, Bluetooth, airplane mode, dark mode, night light and do not disturb (switched-on buttons are filled with the accent colour), volume and brightness (click the icon to mute, or to dim to 1% and back), Silent mode, power mode and notifications (Super+C) |
 | Desktop folders | Drag an app onto another to make a folder (one click opens it), add real files and folders from the right-click menu, drop a file onto a folder to move it in. Files and folders can also be pinned to the Run Bar and Launcher. Widget transparency is in Settings → Desktop |
-| Apps and Tools  | Settings tab to choose default apps (terminal, browser, files, music, video, images, text, PDF, email); Xlin-soft Files, Media and Terminal are the defaults |
+| Apps and Tools  | Settings tab to choose default apps (terminal, browser, files, music, video, images, text, PDF, email); Xlin-soft Files, Media, Xedit, Xview, Xread and Terminal are the defaults |
 | Wallpapers      | Six gradients (Light, Dark, Dark Blue, Light Blue, Dark Green, Light Pink). Add your own or remove them in **Settings → Desktop → Wallpapers**, or with `xlin wallpapers` |
 | Desktop         | Right-click for the **Apps and widgets** gallery (clock, calendar, system, battery, media, notes, to-do, timer), new folder, wallpaper and icon size. Files in `~/Desktop` show up too |
 | Settings        | General (sound, brightness, battery, notifications, sleep, mouse and scrolling), Connectivity, Desktop (status bar, Run Bar, Launcher pins, icons, widgets, wallpapers), Apps and Tools, Personalization (theme, accent, fonts, text size, animations, transparency), About (update, restart, reset, version) |
 | Tools           | Clock, Calendar, Calculator, Notes and Screenshot as small floating windows (Super+T) |
-| Apps            | Terminal with tabs, Files, SysMon, Media player (playlist, subtitles, speed, equalizer, full screen), Store (pacman and AUR) and SysDeb (checks, logs, repairs) |
+| Apps            | Terminal with tabs, Files, SysMon, Media player (playlist, subtitles, speed, equalizer, full screen), Xedit text editor, Xview image viewer, Xread PDF reader, Xman manual, Store (pacman and AUR) and SysDeb (checks, logs, repairs, Fix everything) |
 | Windows         | Every app has hide, fullscreen and close buttons, can be resized by its edge or Super+right-drag, and fills the screen on a double-click of its title bar. Super+H brings hidden windows back, Super+Shift+D shows the desktop |
-| Look and feel   | Light and dark, accent colours, system font and size, Xlin-soft cursor and icons, eight wallpapers (Super+W), animations on or off |
+| Look and feel   | Light and dark, accent colours, system font and size, Xlin-soft cursor and icons, six wallpapers (Super+W), animations on or off |
 | Daily basics    | Screenshots, clipboard history, night light, quick notes, volume and brightness pop-ups |
 
 ## Keys
@@ -77,13 +77,14 @@ Press **Super+/** or run `xlin keys` to see them all. Every key is the first let
 | Super+T | Tools | Alt+Tab | Next window |
 | Super+M | SysMon | Super+arrows | Move focus |
 | Super+N | Notes (Shift: quick note) | Super+Shift+arrows | Move the window |
-| Super+B | Battery and power mode | Super+Ctrl+arrows | Resize the window |
+| Super+B | Battery and power mode | Super+Ctrl+Shift+arrows | Resize the window |
 | Super+L | Lock | Super+drag | Move (left) / resize (right) |
 | Super+P | Power menu | Super+1..4 | Go to workspace |
 | Super+Alt+←/→ | Previous / next workspace | Super+Scroll | Next / previous workspace |
 | Super+D | Dark / light | Super+Shift+1..4 | Send window to workspace |
 | Super+W | Next wallpaper | Super+scroll | Next / previous workspace |
 | Super+V | Clipboard history | Print / Shift / Alt | Screenshot: area / screen / window |
+| Super+Ctrl+↑/↓ | Brightness up / down | Super+Ctrl+←/→ | Volume down / up |
 | Super+Shift+Q | Log out | 3-finger swipe | Left, right: workspace. Up: Launcher. Down: show desktop |
 
 ## Command line
@@ -97,6 +98,7 @@ Press **Super+/** or run `xlin keys` to see them all. Every key is the first let
     xlin bar show|hide settings|tools|wifi|...      xlin runbar autohide on|off
     xlin wallpaper next|<image>       xlin cursor 24|32|48|64
     xlin screenshot | clipboard | idle | nightlight | lock | session
+    xlin edit|view|read <file>       xlin xman       xlin fix [--full]
     xlin store | media | debug | showdesktop | unhide | warm on|off
     xlin update [check]               xlin deps       xlin doctor
     xlin restart | reset              everything

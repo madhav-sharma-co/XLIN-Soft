@@ -2385,7 +2385,7 @@ cmd_update() {
     done
   fi
   if [[ -z "$src" || ! -d "$src/.git" ]]; then
-    echo "Updates need Xlin-soft installed from its git folder: git clone https://github.com/madhav-sharma-co/XLIN.git ~/.Xlin-soft && cd ~/.Xlin-soft && bash install.sh"
+    echo "Updates need Xlin-soft installed from its git folder: git clone https://github.com/madhav-sharma-co/XLIN-Soft.git ~/.Xlin-soft && cd ~/.Xlin-soft && bash install.sh"
     return 3
   fi
   have git || { echo "git is not installed (sudo pacman -S git)"; return 3; }

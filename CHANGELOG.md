@@ -1,7 +1,9 @@
 # Changelog
 
-## 0.1.0 (current: work in progress)
-The first version number of Xlin-soft. We stay on 0.1.0 while the system is being finished and tested, and release 0.2.0 when it is fully ready.
+## 0.1.0 - 2026-11-03
+The first release of Xlin-soft.
+
+New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (PDF reader) as default apps; a full Media player with fullscreen; Xman (the tabbed manual); SysDeb **Fix everything** and `xlin fix`; a richer Welcome tour; Silent mode in the control panel; Settings sorted by topic; Super+Ctrl+arrows for brightness and volume (keyboard resize is now Super+Ctrl+Shift+arrows); the installer finishes with an automatic `xlin restart` and no longer hangs.
 
 - The Launcher opens with Super+Space only. The Super key on its own no longer does anything
 - Windows adapt to any size: drag a window's edge, use Super+right-drag, the fullscreen button, or double-click the title bar to fill the screen (and again to go back). The content follows. Settings pages keep a comfortable width and stay centred in a very wide window, and long hints wrap in a narrow one. The floating tools (Calculator, Calendar, Notes, Clock, Screenshot) can be resized too
