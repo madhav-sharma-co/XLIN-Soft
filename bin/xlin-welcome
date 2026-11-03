@@ -263,7 +263,11 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         self.settings_btn.add_css_class("welcome-ghost")
         self.settings_btn.set_tooltip_text("Change any of this later, and much more, in Settings")
         self.settings_btn.connect("clicked", lambda _b: xlin_ui.run(["xlin", "settings"]))
-        for w in (self.count, self.settings_btn, self.back, self.next):
+        self.manual_btn = Gtk.Button(label="Open Manual")
+        self.manual_btn.add_css_class("welcome-ghost")
+        self.manual_btn.set_tooltip_text("Read Xman, the Xlin-soft Manual")
+        self.manual_btn.connect("clicked", lambda _b: xlin_ui.run(["xlin", "xman"]))
+        for w in (self.count, self.manual_btn, self.settings_btn, self.back, self.next):
             bar.append(w)
         root.append(bar)
         self.go(0)
@@ -388,12 +392,12 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         return b
 
     def p_desktop(self):
-        b = page("Top bar and Run Bar", "Decide what you see around the desktop.")
-        b.append(switch_row("Show the top bar", "Super+C still opens the control panel when it is off",
+        b = page("Status bar and Run Bar", "Decide what you see around the desktop.")
+        b.append(switch_row("Show the status bar", "Super+C still opens the control panel when it is off",
                             not os.path.exists(os.path.join(STATE, "statusbar_off")),
                             lambda on: in_thread(lambda: run(["xlin", "statusbar", "on" if on else "off"], 10))))
         hidden = set(read_state("bar_hidden", "").split())
-        b.append(switch_row("Time and date on the top bar", None, "clock" not in hidden,
+        b.append(switch_row("Time and date on the status bar", None, "clock" not in hidden,
                             lambda on: in_thread(lambda: run(["xlin", "bar", "show" if on else "hide", "clock"]))))
         b.append(switch_row("Auto-hide the Run Bar", "Show it only when you reach the bottom edge",
                             read_state("dock_autohide", "on") != "off",
@@ -442,7 +446,7 @@ class WelcomeWindow(Gtk.ApplicationWindow):
         more.connect("clicked", lambda _b: xlin_ui.run(["xlin", "settings"]))
         b.append(more)
         tip = Gtk.Label(label="Something wrong later? Open SysDeb and press Fix everything. "
-                              "The X button on the top bar opens Xman, the Xlin-soft Manual.", xalign=0, wrap=True, margin_top=10)
+                              "The X button on the status bar opens Xman, the Xlin-soft Manual.", xalign=0, wrap=True, margin_top=10)
         tip.add_css_class("welcome-sub")
         b.append(tip)
         return b

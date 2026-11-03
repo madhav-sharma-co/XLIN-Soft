@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Xlin-soft Tools.
 
-  xlin-tools              the small Tools menu under the top bar
+  xlin-tools              the small Tools menu under the status bar
   xlin-tools calculator   a floating calculator window
   xlin-tools calendar     a floating calendar window
   xlin-tools notes        a floating notes window (notes are plain .md files)
@@ -619,7 +619,7 @@ def hypr_json(what):
 def place_window(app_id, stagger, center=False):
     """Hyprland: tools that are not the menu open in the middle of the screen (the window rule does that
     for the first one); each extra tool is shifted a little so they do not hide each other.
-    The menus (Tools, battery, power) stay under the top bar at the right edge."""
+    The menus (Tools, battery, power) stay under the status bar at the right edge."""
     try:
         clients = hypr_json("clients")
         mons = hypr_json("monitors")
@@ -1582,7 +1582,7 @@ def read_sinks():
 
 
 class VolumeWindow(ToolWindow, Dropdown):
-    """Volume dropdown: a slider, a mute switch and the sound outputs. Opens from the speaker icon on the top bar."""
+    """Volume dropdown: a slider, a mute switch and the sound outputs. Opens from the speaker icon on the status bar."""
 
     def __init__(self, app):
         super().__init__(app, "Volume", VOL_W, VOL_H, with_close=False)
@@ -1714,7 +1714,7 @@ MANUAL_TABS = [
               "Personalization (theme, accent, fonts, transparency, animations) and About (update, restart, reset)."),
     ]),
     ("Desktop", [
-        ("h", "Top bar"),
+        ("h", "Status bar"),
         ("p", "This X button opens the manual, then the current app. On the right: Settings, Tools, Wi-Fi, Bluetooth, "
               "sound, battery, clock, power and the control panel. Click Wi-Fi, Bluetooth, sound or battery for a quick menu. "
               "Show or hide any item in Settings, Desktop."),

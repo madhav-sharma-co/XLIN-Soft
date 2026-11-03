@@ -17,7 +17,7 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - **Wi-Fi, Bluetooth and Volume menus now really open** (they did not before: older commands with the same names took over, so a click on the icon ran the text tool instead of opening the menu). `xlin wifi`, `xlin bluetooth` and `xlin volume` with no arguments open the menu; with arguments (`xlin wifi list`, `xlin sound set 40`, ...) they work as before. A test now fails if a function or a command is defined twice.
 - **`xlin reset` resets everything you changed:** theme, accent, wallpaper, fonts and size, animations, scroll direction, window transparency, terminal font, status bar and Run Bar options, pinned apps, desktop icons, folders and widgets, default apps, sleep and lock times, night light, do not disturb, power mode, control panel layout, and the Welcome tour. It clears every saved choice (also ones added later), keeping only the install record. Your own files, notes and added wallpapers are kept.
 - **Run Bar no longer vanishes after pinning an app.** Cause: `xlin pin` was started from the Launcher or desktop and handed the layer-shell library on to the new Run Bar, which could not run with it. `xlin` now drops it itself, and after every pin it checks the Run Bar is up and starts it again if it is not.
-- **Volume menu:** clicking the speaker icon on the top bar opens a small menu under the bar (like the battery menu): a volume slider, a Mute switch and the sound outputs to choose from (`xlin volume`). Right-click opens the sound mixer, middle-click mutes or unmutes.
+- **Volume menu:** clicking the speaker icon on the status bar opens a small menu under the bar (like the battery menu): a volume slider, a Mute switch and the sound outputs to choose from (`xlin volume`). Right-click opens the sound mixer, middle-click mutes or unmutes.
 - **Xedit (text editor)** and **Xview (image viewer)**, the new default apps for text and pictures. Xedit: tabs, syntax colours, find and replace, go to line, wrap, zoom, undo/redo, safe saving and unsaved-change prompts. Xview: zoom, fit, rotate, flip, folder browsing, slideshow, full screen, copy, set as wallpaper, move to trash and picture info. Open them with `xlin edit` and `xlin view`; `xlin fix` installs `gtksourceview5`.
 - **Shortcuts:** Super+Ctrl+Up / Down change the brightness (never below 1%) and Super+Ctrl+Right / Left the volume, with the on-screen popup and key repeat. Resizing a window with the keyboard moved to Super+Ctrl+Shift+Arrows.
 - **Installer never hangs, and starts Xlin-soft by itself:** every slow helper (gsettings, the wallpaper daemon, `swaync-client`, `hyprctl`) now has a time limit, theme changes stop stragglers after 20 s, and each install step runs without keyboard input. The last step of `install.sh` and `update.sh` is now always `xlin restart`; it finds the running Hyprland even from a terminal opened before it, and says what to do when Hyprland is not running.
@@ -29,14 +29,14 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - **Control panel:** Silent mode is a normal tile in the button grid (3 per row) instead of a separate row, so no space is wasted; the volume and brightness bars are slimmer cards with a bigger icon and a thick pill slider.
 - **Media is a full player.** It plays through GStreamer (the old GTK player closed on some files): playlist with shuffle and repeat, seek bar, volume up to 150%, speed 0.25x-2x, full screen (F, F11 or double-click; the controls and pointer hide while you watch), subtitles (automatic, from a file or a track), audio tracks, equalizer presets, track info, web addresses and keyboard control. Problems are written to `~/.cache/xlin/media.log`; `xlin fix` installs the codecs (`gst-plugin-gtk4`, `gst-plugins-bad`).
 - **Xman (the Xlin-soft Manual)** has tabs (Start, Desktop, Apps, Shortcuts, Help, About), its own app icon and a launcher entry.
-- **Welcome tour** has more pages: fonts and text sizes, cursor, animations, window transparency, scrolling, top bar and Run Bar, lock, sleep and night light, wallpapers. *Open Settings* is on every page.
+- **Welcome tour** has more pages: fonts and text sizes, cursor, animations, window transparency, scrolling, status bar and Run Bar, lock, sleep and night light, wallpapers. *Open Settings* is on every page.
 - **SysDeb: Fix everything.** One button (or `xlin fix`, `xlin fix --full` to update the system too) repairs the desktop: clears stale locks and pid files, sets up package keys, reinstalls Xlin-soft's files, installs every missing package, starts Wi-Fi/Bluetooth/power services, restores the Hyprland hook, shortcuts, theme and bar files, restarts the bars, then checks again. *Run checks* now lists the problems at the top.
 - **Settings sorted by topic:** Desktop now holds everything about the desktop (status bar, Run Bar, Launcher pins, icons, widgets, wallpapers); General holds sound, brightness, battery, notifications, sleep, night light, mouse and scrolling; Personalization holds theme, accent, transparency, animations and fonts; About holds update, restart, reset and version. The separate *Status Bar and Run Bar* and *Launcher* tabs are gone (`xlin settings bars|launcher` still open Desktop).
-- **Status bar settings:** *Time and date* is now a switch in Settings → Desktop, and *Show status bar* in Settings → Desktop hides or shows the whole top bar (`xlin statusbar on|off`; `xlin reset` shows it again).
+- **Status bar settings:** *Time and date* is now a switch in Settings → Desktop, and *Show status bar* in Settings → Desktop hides or shows the whole status bar (`xlin statusbar on|off`; `xlin reset` shows it again).
 - **Other apps open again** (Firefox, Claude and any non-Xlin-soft app from the Launcher, or by double-click / right-click → Open on the desktop). The Launcher and the desktop load a helper library (gtk4-layer-shell) when they start, and every app they opened inherited it, which stopped it from starting. They now drop it after starting, and `xlin launch-app` also opens apps without it.
 - **Hide button fixed:** a hidden window that you brought back by clicking its Run Bar icon used to stay stuck in Hyprland's hidden-windows space: the hide button then did nothing and that space kept covering the desktop. Now such a window turns into a normal window of the current workspace at once (like restoring a minimised window), the cover goes away, and the hide button works again every time. If a window is ever found stuck there, the hide button first sets it free and then hides it properly.
 - **Control panel look:** a rounder panel with a soft shadow, a bigger title, taller rounded buttons that fade between on and off, the volume and brightness sliders on their own soft cards with a thicker track and a round handle, and softer notification cards.
-- **Mute with one click:** click the volume icon on the top bar to mute or unmute (right-click opens the sound mixer). The control panel has a **Mute sound** button above the volume slider that lights up while muted (`xlin sound toggle`, `xlin state muted`).
+- **Mute with one click:** click the volume icon on the status bar to mute or unmute (right-click opens the sound mixer). The control panel has a **Mute sound** button above the volume slider that lights up while muted (`xlin sound toggle`, `xlin state muted`).
 - **Brightness never goes below 1%** (a fully black screen): brightness keys, the control panel slider, Settings and `xlin brightness` all stop at 1% of the screen's range, and a screen already at 0 is lifted to 1%.
 - **Scrolling is normal now** (moving down scrolls the page down). Xlin-soft sets the direction itself, so a leftover natural-scrolling setting in your own Hyprland config no longer inverts it. **Settings → Desktop → Natural scrolling** switches the phone-style direction on if you want it (`xlin scroll normal|natural`).
 - **Smooth scrolling everywhere:** the mouse wheel now glides in every scroll area of every Xlin-soft app instead of jumping in steps (touchpads already scroll smoothly).
@@ -52,8 +52,8 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - **Control panel buttons** are now in this order: Wi-Fi, Bluetooth, Airplane, Do not disturb, Dark mode, Night light, Settings and the new **Reload** (restarts Xlin-soft, like `xlin restart`).
 - **Wallpapers:** Xlin-soft now ships six plain gradient wallpapers: Light, Dark, Dark Blue, Light Blue, Dark Green and Light Pink (the earlier eight are removed on update; wallpapers you added are never touched). **Settings → Desktop → Wallpapers** shows them as thumbnails: click to use, **Add wallpaper...** for your own pictures, a bin button to remove your own, **Open folder**. From a terminal: `xlin wallpapers list | add | remove | open | path`. The folder is hidden (`~/.config/xlin/wallpapers`); reach it with `cd "$(xlin wallpapers path)"`.
 - The Xlin-soft source folder is now **`~/.Xlin-soft`** (hidden, so `ls` does not show it; `ls -a` and `cd ~/.Xlin-soft` still work). Existing clones keep working; `xlin update` finds the old locations too.
-- The **X button** on the top bar opens the new **Xlin-soft Manual** (introduction, basics, troubleshooting, who made it) instead of the Launcher (`xlin manual`).
-- **Wi-Fi and Bluetooth** on the top bar open small dropdown menus like the battery menu: switch on or off, connect or disconnect with one click, password for new secured networks (`xlin wifi`, `xlin bluetooth`). Right-click the icon for the full Settings page.
+- The **X button** on the status bar opens the new **Xlin-soft Manual** (introduction, basics, troubleshooting, who made it) instead of the Launcher (`xlin manual`).
+- **Wi-Fi and Bluetooth** on the status bar open small dropdown menus like the battery menu: switch on or off, connect or disconnect with one click, password for new secured networks (`xlin wifi`, `xlin bluetooth`). Right-click the icon for the full Settings page.
 - The **Welcome tour** now shows after a fresh install and after `xlin reset` (an old "already welcomed" flag from an earlier install used to hide it).
 - Everything listed below was built before the numbers were reset to 0.1.0
 
@@ -72,7 +72,7 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - Desktop layer no longer lags or freezes the laptop: the full-screen desktop surface had a blur and an animation on it, which Hyprland redrew every frame; both are gone. It also starts with a lower priority, and a restart waits until the old one has really stopped
 - Fixed the desktop disappearing after changing a widget in Settings (it was started again while the old copy was still closing, so it never came back)
 - A forgotten right-click menu can no longer block the desktop menu: the next right click closes it, and rofi is now installed with the extras
-- `xlin restart` restarts the whole system: top bar, control panel, Run Bar and its watcher, desktop and the waiting apps, each stopped completely before it starts again
+- `xlin restart` restarts the whole system: status bar, control panel, Run Bar and its watcher, desktop and the waiting apps, each stopped completely before it starts again
 - One part at a time: `xlin runbar|bar|panel|desktop|launcher restart` and `... reset` (also `xlin restart <part>`, `xlin reset <part>`). Reset puts only that part back to its defaults
 
 ## 0.60.0
@@ -97,7 +97,7 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - Log files in ~/.cache/xlin are kept small: a log over 1 MB is cut to its last 500 lines at each start
 
 ## 0.56.0
-- Each panel now arrives its own way: the Launcher rises from the Run Bar, the control panel and notifications slide in from the right, the top bar and Run Bar glide in from their edge, desktop widgets fade. Subtle uses a small pop or fade everywhere. Off (Settings -> Personalization -> Animations) turns all of it off
+- Each panel now arrives its own way: the Launcher rises from the Run Bar, the control panel and notifications slide in from the right, the status bar and Run Bar glide in from their edge, desktop widgets fade. Subtle uses a small pop or fade everywhere. Off (Settings -> Personalization -> Animations) turns all of it off
 
 ## 0.55.0
 - System Monitor is now SysMon and System Debug is SysDeb (window titles, app entries, menus, README). Settings -> About has shortcut buttons for both, next to Update and Reset
@@ -235,7 +235,7 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 ## 0.26.2
 - Fix: the fullscreen button is now real fullscreen, exactly like Super+F
 - Fix: the hide button hides the window it belongs to (not whichever is focused); Super+H brings back the last hidden window, `xlin unhide all` brings back every one
-- Top bar: the current-app name shows "Files" instead of "dev.xlin.Files"; clicking the date and time opens the Calendar
+- Status bar: the current-app name shows "Files" instead of "dev.xlin.Files"; clicking the date and time opens the Calendar
 
 ## 0.26.1
 - Lock screen shows the battery level (top right) next to the time, date, name and password field
@@ -265,12 +265,12 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - Kitty is no longer required: the installer only installs it if XLIN Terminal cannot run, and `xlin doctor` checks XLIN Terminal instead
 
 ## 0.23.0
-- Settings: new Bars page (show or hide the Settings, Tools, Wi-Fi, Bluetooth, Sound, Battery, Power and Control panel buttons on the top bar; Run Bar auto-hide and icon size) and a General page (desktop menu and widgets, cursor size, terminal choice, auto-lock and delay, night light)
+- Settings: new Bars page (show or hide the Settings, Tools, Wi-Fi, Bluetooth, Sound, Battery, Power and Control panel buttons on the status bar; Run Bar auto-hide and icon size) and a General page (desktop menu and widgets, cursor size, terminal choice, auto-lock and delay, night light)
 - The bottom bar is now called the Run Bar everywhere (Settings, Welcome, README); `xlin runbar` is the command (`xlin dock` still works)
 - Tab completion knows the new commands
 
 ## 0.22.0
-- Calculator, Calendar and Notes now open in the middle of the screen (the Tools menu itself stays under the top bar); extra tools open a little offset so they do not hide each other
+- Calculator, Calendar and Notes now open in the middle of the screen (the Tools menu itself stays under the status bar); extra tools open a little offset so they do not hide each other
 - New tool in the Tools menu: Screenshot (select an area, a window or the whole screen, with an optional 3 or 5 second delay, and a button for the Screenshots folder)
 
 ## 0.21.1
@@ -358,4 +358,4 @@ New in the final stretch: Xedit (text editor), Xview (image viewer) and Xread (P
 - Lock screen, power menu, battery menu, mnemonic shortcuts
 
 ## 0.1 - 0.3
-- Top bar, launcher, dock, control panel, Settings, Tools (calculator, calendar), XLIN Terminal
+- Status bar, launcher, dock, control panel, Settings, Tools (calculator, calendar), XLIN Terminal

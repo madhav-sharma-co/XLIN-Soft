@@ -27,7 +27,7 @@ import re
 s = open('bin/xlin-welcome').read()
 b = s[s.index('self.builders = ['):s.index(']', s.index('self.builders = ['))]
 assert len(re.findall(r'self\\.p_\\w+', b)) >= 9, b
-for need in ('System font', 'Text size', 'Animations', 'Window transparency', 'Show the top bar', 'Night light', 'Open Settings'):
+for need in ('System font', 'Text size', 'Animations', 'Window transparency', 'Show the status bar', 'Night light', 'Open Settings'):
     assert need in s, need
 PY"
 chk "media helpers"                   "python3 - <<'PY'

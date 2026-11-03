@@ -2,7 +2,7 @@
 # xlin - command line for the Xlin-soft desktop
 set -uo pipefail
 # The Launcher and the desktop start with the gtk4-layer-shell library preloaded. Anything they start through xlin
-# (the Run Bar, the top bar, other apps) must not carry it along: the Run Bar used to die after pinning an app.
+# (the Run Bar, the status bar, other apps) must not carry it along: the Run Bar used to die after pinning an app.
 case "${LD_PRELOAD:-}" in *libgtk4-layer-shell*) unset LD_PRELOAD XLIN_START_REEXEC XLIN_DESKTOP_REEXEC ;; esac
 
 XLIN_HOME="${XLIN_HOME:-$HOME/.config/xlin}"
@@ -1441,7 +1441,7 @@ start_waybar() {
   [[ -f "$STATE/statusbar_off" ]] && return 0          # the user switched the status bar off (Settings -> Desktop)
   mkdir -p "$HOME/.cache/xlin"; setsid waybar >>"$HOME/.cache/xlin/waybar.log" 2>&1 &
 }
-# xlin statusbar [on|off]: show or hide the whole top bar
+# xlin statusbar [on|off]: show or hide the whole status bar
 cmd_statusbar() {
   case "${1:-}" in
     "") [[ -f "$STATE/statusbar_off" ]] && echo "status bar: off" || echo "status bar: on" ;;
@@ -1458,7 +1458,7 @@ start_swaync() {
 part_restart() {
   case "$1" in
     runbar|dock) dock_restart; echo "run bar restarted" ;;
-    bar|topbar|waybar) stop_proc -x waybar; start_waybar; echo "top bar restarted" ;;
+    bar|topbar|waybar) stop_proc -x waybar; start_waybar; echo "status bar restarted" ;;
     panel|swaync) stop_proc -x swaync; start_swaync; echo "control panel restarted" ;;
     desktop) cmd_desktop restart ;;
     launcher|start) stop_proc -f '[x]lin-start( |$)'; echo "Launcher restarted (it opens fresh next time)" ;;
@@ -1471,7 +1471,7 @@ part_reset() {
     runbar|dock) rm -f "$STATE/dock_autohide" "$STATE/dock_icon"; pins_runbar_default; dock_restart
                  echo "run bar: default size, auto-hide and pinned apps" ;;
     bar|topbar|waybar) rm -f "$STATE/bar_hidden" "$STATE/statusbar_off"; bar_apply 2>/dev/null || true
-                 stop_proc -x waybar; start_waybar; echo "top bar: all buttons shown, restarted" ;;
+                 stop_proc -x waybar; start_waybar; echo "status bar: all buttons shown, restarted" ;;
     panel|swaync) src="$(head -n1 "$STATE/source" 2>/dev/null || true)"
                  [[ -f "$src/config/swaync/config.json" ]] && cp "$src/config/swaync/config.json" "$HOME/.config/swaync/config.json"
                  swaync_scale; stop_proc -x swaync; start_swaync; echo "control panel: default layout, restarted" ;;
@@ -2146,7 +2146,7 @@ start_extras() {
 }
 
 # Hide bar parts this computer does not have (battery on a desktop). Safe to run any time.
-# ---- top bar buttons: xlin bar [status | show <name> | hide <name> | reset]
+# ---- status bar buttons: xlin bar [status | show <name> | hide <name> | reset]
 BAR_NAMES="settings tools wifi bluetooth sound battery clock power panel"
 bar_module() {
   case "$1" in
@@ -2187,10 +2187,10 @@ cmd_bar() {
       [[ "$act" == hide ]] && hidden="$hidden $name "
       mkdir -p "$STATE"; echo $hidden >"$STATE/bar_hidden"      # unquoted on purpose: tidies the spaces
       bar_apply; pkill -SIGUSR2 waybar 2>/dev/null || true
-      echo "top bar: $name $act" ;;
+      echo "status bar: $name $act" ;;
     reset)
       rm -f "$STATE/bar_hidden"; bar_apply; pkill -SIGUSR2 waybar 2>/dev/null || true
-      echo "top bar: all buttons shown" ;;
+      echo "status bar: all buttons shown" ;;
     *) echo "usage: xlin bar [status | show <name> | hide <name> | reset]"; return 1 ;;
   esac
 }
@@ -2519,7 +2519,7 @@ ${B}xlin battery${R}
   xlin battery mode              show the power mode
   xlin battery mode saver|balanced|performance
   xlin silent [on|off]             silent mode: mute the sound and quiet notifications
-  xlin statusbar [on|off]          show or hide the top bar
+  xlin statusbar [on|off]          show or hide the status bar
   xlin volume                      volume dropdown (like the battery menu)
   xlin scroll [normal|natural]     scroll direction (normal by default)
   xlin pinpath runbar|launcher|both <path>   pin a file or folder like an app
@@ -2535,7 +2535,7 @@ ${B}Look and feel${R}
   xlin opacity <0.3-1.0>           window transparency
   xlin runbar autohide on|off      run bar (the bottom bar): hide when not used
   xlin runbar size 32|40|48        run bar icon size
-  xlin bar [show|hide <name>]      top bar buttons: settings tools wifi bluetooth sound battery power panel
+  xlin bar [show|hide <name>]      status bar buttons: settings tools wifi bluetooth sound battery power panel
   xlin term [-d folder] [-e cmd]   open a terminal window
   xlin desktop [on|off|restart|reset]   right-click desktop menu, shortcuts and widgets
   xlin restart                     restart everything (bars, panel, Run Bar, desktop, apps)

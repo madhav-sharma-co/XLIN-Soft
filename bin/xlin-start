@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Xlin-soft Launcher - the Start menu (Super+Space, or the X button on the top bar).
+"""Xlin-soft Launcher - the Start menu (Super+Space, or the X button on the status bar).
 
 Search, your pinned apps, recent apps, and quick buttons for Settings and Power.
 Below them is the full list of apps (All apps), like a Start menu. Esc or a click outside closes it. Needs gtk4-layer-shell.

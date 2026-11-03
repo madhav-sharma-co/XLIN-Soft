@@ -4,7 +4,7 @@ Use a fresh Arch Linux install (a virtual machine is fine) with Hyprland and a n
 
 ## Install
 1. `git clone https://github.com/madhav-sharma-co/XLIN-Soft.git ~/.Xlin-soft && cd ~/.Xlin-soft && bash install.sh`
-2. Log out and back in. Check: top bar, Run Bar, wallpaper, cursor, no red error line from Hyprland.
+2. Log out and back in. Check: status bar, Run Bar, wallpaper, cursor, no red error line from Hyprland.
 3. `xlin doctor` shows no MISSING line.
 
 ## Every day
@@ -20,7 +20,7 @@ Use a fresh Arch Linux install (a virtual machine is fine) with Hyprland and a n
 - Xedit: open a text file and a `.py` file (colours), edit, find and replace (Ctrl+F / Ctrl+H), save, close with unsaved changes (it asks).
 - Xview: open a picture, next/previous in the folder, zoom, rotate, slideshow (Space), full screen, trash.
 - Xread: open a PDF, scroll, search (Ctrl+F), contents (B), night mode (N), a password-protected PDF.
-- Xman (X on the top bar): all tabs. Welcome (`xlin welcome`): every page, and Open Settings.
+- Xman (X on the status bar): all tabs. Welcome (`xlin welcome`): every page, and Open Settings.
 - Screenshot tool: the chosen delay is highlighted; Include pointer, Copy only and Open afterwards work.
 - SysDeb: Run checks, then Fix everything on a machine with a package removed (e.g. remove `jq`); it comes back.
 

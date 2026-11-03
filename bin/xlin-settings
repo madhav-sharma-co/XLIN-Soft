@@ -515,7 +515,7 @@ def appearance_page(win):
     c = card()
     box.append(c)
     dark = read_state("theme", "light") == "dark"
-    c.append(row("Dark mode", "Top bar, Run Bar, launcher, panel and apps", switch(
+    c.append(row("Dark mode", "Status bar, Run Bar, launcher, panel and apps", switch(
         dark, lambda s: in_thread(lambda: run(["xlin", "theme", "dark" if s else "light"], 30)))))
 
     c.append(row("Accent colour", "Highlights, buttons and selections", accent_dots()))
@@ -613,7 +613,7 @@ def bars_page(win, box):
     hidden = set(read_state("bar_hidden", "").split())
     c = card()
     box.append(c)
-    head = Gtk.Label(label="Status bar (the top bar)", xalign=0, margin_top=10)
+    head = Gtk.Label(label="Status bar", xalign=0, margin_top=10)
     head.add_css_class("xlin-sub")
     c.append(head)
     for name, title, sub_ in BAR_ITEMS:
@@ -808,7 +808,7 @@ def desktop_page(win):
     c.append(row("Restart the desktop layer", "Use this if right-click on the desktop does nothing", button(
         "Restart", lambda: in_thread(lambda: run(["xlin", "desktop", "restart"], 20),
                                      lambda _r: GLib.timeout_add(1500, lambda: (refresh_status(), False)[1])))))
-    c.append(row("Show status bar", "The top bar. Switch it off if you do not want it; Super+C still opens the control panel", switch(
+    c.append(row("Show status bar", "The bar at the top. Switch it off if you do not want it; Super+C still opens the control panel", switch(
         not os.path.exists(os.path.join(STATE, "statusbar_off")),
         lambda s: in_thread(lambda: run(["xlin", "statusbar", "on" if s else "off"], 10)))))
     c.append(row("Desktop layer", "Right-click menu, icons and widgets on the desktop", switch(
