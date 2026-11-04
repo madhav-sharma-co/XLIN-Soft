@@ -1190,34 +1190,6 @@ class PowerWindow(ToolWindow):
             return True
         return False
 
-    # ---- background reads: one at a time, and a request that arrives meanwhile runs once more afterwards
-    def spawn_read(self, fn):
-        if getattr(self, "_reading", False):
-            self._again = True
-            return
-        self._reading = True
-
-        def run():
-            try:
-                fn()
-            except Exception as exc:       # a failed read must never take the menu down
-                print("xlin-tools:", type(self).__name__, "read failed:", exc, file=sys.stderr)
-            finally:
-                self._reading = False
-                if getattr(self, "_again", False):
-                    self._again = False
-                    GLib.idle_add(self.refresh_once)
-        threading.Thread(target=run, daemon=True).start()
-
-    def refresh_once(self, tries=0):
-        """Read the state one time, from an idle or timeout callback. Always returns False, so it never repeats
-        (returning refresh()'s True here made GLib call it again and again until the menu froze)."""
-        if self.get_visible():
-            self.refresh()
-        elif tries < 20:
-            GLib.timeout_add(100, self.refresh_once, tries + 1)
-        return False
-
     def on_active(self, *_a):
         if self.is_active():
             self.was_active = True
@@ -1264,6 +1236,34 @@ class Dropdown:
         if keyval == Gdk.KEY_Escape:
             self.close()
             return True
+        return False
+
+    # ---- background reads: one at a time, and a request that arrives meanwhile runs once more afterwards
+    def spawn_read(self, fn):
+        if getattr(self, "_reading", False):
+            self._again = True
+            return
+        self._reading = True
+
+        def run():
+            try:
+                fn()
+            except Exception as exc:       # a failed read must never take the menu down
+                print("xlin-tools:", type(self).__name__, "read failed:", exc, file=sys.stderr)
+            finally:
+                self._reading = False
+                if getattr(self, "_again", False):
+                    self._again = False
+                    GLib.idle_add(self.refresh_once)
+        threading.Thread(target=run, daemon=True).start()
+
+    def refresh_once(self, tries=0):
+        """Read the state one time, from an idle or timeout callback. Always returns False, so it never repeats
+        (returning refresh()'s True here made GLib call it again and again until the menu froze)."""
+        if self.get_visible():
+            self.refresh()
+        elif tries < 20:
+            GLib.timeout_add(100, self.refresh_once, tries + 1)
         return False
 
     def on_active(self, *_a):

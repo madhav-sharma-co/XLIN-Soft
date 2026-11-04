@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Fix:** the Wi-Fi, Bluetooth and Volume menus did not open at all after the first freeze fix, because the shared helper code had been added to the wrong class. It is now in the right place, and a new test opens each menu and runs its actions
 - **Wi-Fi, Bluetooth and Volume menus no longer freeze or crash.** Each menu kept re-reading its state in an endless loop; it now reads once when it opens and then every few seconds, one read at a time. The lists also fill in straight away instead of after a few seconds
 - **Bluetooth menu:** *Search for new devices* finds nearby devices and pairs, trusts and connects the one you click, without leaving the menu
 

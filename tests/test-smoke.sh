@@ -21,7 +21,8 @@ run xlin-read ReadWindow read
 run xlin-welcome WelcomeWindow welcome
 run xlin-settings SettingsWindow settings
 run xlin-debug DebugWindow debug
-for w in ManualWindow WifiWindow BluetoothWindow VolumeWindow PowerWindow SessionWindow MenuWindow; do run xlin-tools $w; done
+for w in ManualWindow PowerWindow SessionWindow MenuWindow; do run xlin-tools $w; done
+for w in WifiWindow BluetoothWindow VolumeWindow; do run xlin-tools $w dropdown; done
 run xlin-files FilesWindow
 run xlin-store StoreWindow
 run xlin-monitor MonitorWindow
