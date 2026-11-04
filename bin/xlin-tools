@@ -1190,6 +1190,34 @@ class PowerWindow(ToolWindow):
             return True
         return False
 
+    # ---- background reads: one at a time, and a request that arrives meanwhile runs once more afterwards
+    def spawn_read(self, fn):
+        if getattr(self, "_reading", False):
+            self._again = True
+            return
+        self._reading = True
+
+        def run():
+            try:
+                fn()
+            except Exception as exc:       # a failed read must never take the menu down
+                print("xlin-tools:", type(self).__name__, "read failed:", exc, file=sys.stderr)
+            finally:
+                self._reading = False
+                if getattr(self, "_again", False):
+                    self._again = False
+                    GLib.idle_add(self.refresh_once)
+        threading.Thread(target=run, daemon=True).start()
+
+    def refresh_once(self, tries=0):
+        """Read the state one time, from an idle or timeout callback. Always returns False, so it never repeats
+        (returning refresh()'s True here made GLib call it again and again until the menu froze)."""
+        if self.get_visible():
+            self.refresh()
+        elif tries < 20:
+            GLib.timeout_add(100, self.refresh_once, tries + 1)
+        return False
+
     def on_active(self, *_a):
         if self.is_active():
             self.was_active = True
@@ -1317,18 +1345,19 @@ class WifiWindow(ToolWindow, Dropdown):
         more.connect("clicked", lambda _b: (xlin_ui.run(["xlin", "settings", "wifi"]), self.close()))
         self.body.append(more)
 
+        self.dev = ""
         self.setup_dropdown()
-        self.refresh()
+        GLib.idle_add(self.refresh_once)
         GLib.timeout_add_seconds(6, self.refresh)
         # look for networks again right now (the list updates when the scan is done)
         threading.Thread(target=lambda: (cmd_out(["nmcli", "dev", "wifi", "rescan"], 10),
-                                         GLib.idle_add(self.refresh)), daemon=True).start()
+                                         GLib.idle_add(self.refresh_once)), daemon=True).start()
 
     # ---- reading the state (in a thread, so the menu never freezes)
     def refresh(self):
         if not self.get_visible():
             return False
-        threading.Thread(target=self.read_state, daemon=True).start()
+        self.spawn_read(self.read_state)
         return True
 
     def read_state(self):
@@ -1341,7 +1370,11 @@ class WifiWindow(ToolWindow, Dropdown):
                 f = split_nmcli(line)
                 if len(f) < 4 or not f[1]:
                     continue
-                use, ssid, sig, sec = f[0] == "*", f[1], int(f[2] or 0), f[3]
+                try:
+                    sig = int(f[2] or 0)
+                except ValueError:
+                    sig = 0
+                use, ssid, sec = f[0].strip() == "*", f[1], f[3]
                 old = nets.get(ssid)
                 if old is None or use or (not old["use"] and sig > old["sig"]):
                     nets[ssid] = {"ssid": ssid, "use": use, "sig": sig, "sec": bool(sec and sec != "--")}
@@ -1384,7 +1417,7 @@ class WifiWindow(ToolWindow, Dropdown):
     def on_switch(self, _s, state):
         if not self.busy:
             threading.Thread(target=lambda: (cmd_out(["nmcli", "radio", "wifi", "on" if state else "off"], 8),
-                                             GLib.idle_add(self.refresh)), daemon=True).start()
+                                             GLib.idle_add(self.refresh_once)), daemon=True).start()
             self.status.set_text("Turning Wi-Fi on…" if state else "Turning Wi-Fi off…")
         return False
 
@@ -1406,7 +1439,7 @@ class WifiWindow(ToolWindow, Dropdown):
         return False
 
     def read_threaded(self):
-        threading.Thread(target=self.read_state, daemon=True).start()
+        self.spawn_read(self.read_state)
 
     def pick(self, net, known):
         self.pw_box.set_visible(False)
@@ -1461,19 +1494,25 @@ class BluetoothWindow(ToolWindow, Dropdown):
         sc.set_child(self.list)
         self.body.append(sc)
 
-        more = Gtk.Button(label="Pair a new device…")
+        self.found = []            # nearby devices that are not paired yet: {"mac", "name"}
+        self.paired = set()
+        self.scan_btn = Gtk.Button(label="Search for new devices")
+        self.scan_btn.add_css_class("tools-item")
+        self.scan_btn.connect("clicked", lambda _b: self.scan())
+        self.body.append(self.scan_btn)
+        more = Gtk.Button(label="Bluetooth settings…")
         more.add_css_class("tools-item")
         more.connect("clicked", lambda _b: (xlin_ui.run(["xlin", "settings", "bluetooth"]), self.close()))
         self.body.append(more)
 
         self.setup_dropdown()
-        self.refresh()
+        GLib.idle_add(self.refresh_once)
         GLib.timeout_add_seconds(5, self.refresh)
 
     def refresh(self):
         if not self.get_visible():
             return False
-        threading.Thread(target=self.read_state, daemon=True).start()
+        self.spawn_read(self.read_state)
         return True
 
     def read_state(self):
@@ -1505,7 +1544,8 @@ class BluetoothWindow(ToolWindow, Dropdown):
             self.status.set_text("Bluetooth is off")
             return False
         devices.sort(key=lambda d: (not d["on"], d["name"].lower()))
-        if not self.pending:
+        self.paired = {d["mac"] for d in devices}
+        if not self.pending and not self.scanning:
             on = [d["name"] for d in devices if d["on"]]
             self.status.set_text(("Connected: " + ", ".join(on)) if on else
                                  ("Not connected" if devices else "No paired devices yet"))
@@ -1516,6 +1556,61 @@ class BluetoothWindow(ToolWindow, Dropdown):
                 row.add_css_class("tools-active")
             row.connect("clicked", lambda _b, dev=d: self.pick(dev))
             self.list.append(row)
+        for d in self.found:
+            if d["mac"] in self.paired:
+                continue
+            row = menu_row(d["name"], "New device · click to pair and connect", "")
+            row.connect("clicked", lambda _b, dev=d: self.pair(dev))
+            self.list.append(row)
+        return False
+
+    scanning = False
+
+    def scan(self):
+        if self.scanning:
+            return
+        self.scanning = True
+        self.scan_btn.set_label("Searching…")
+        self.status.set_text("Looking for devices nearby… (put the device in pairing mode)")
+
+        def work():
+            cmd_out(["rfkill", "unblock", "bluetooth"], 4)
+            cmd_out(["bluetoothctl", "--timeout", "8", "scan", "on"], 14)
+            ok, out = cmd_out(["bluetoothctl", "devices"], 4)
+            found = []
+            for line in out.splitlines() if ok else []:
+                parts = line.split(" ", 2)
+                if len(parts) == 3 and parts[0] == "Device" and parts[2].replace("-", ":").upper() != parts[1].upper():
+                    found.append({"mac": parts[1], "name": parts[2]})
+            GLib.idle_add(self.scan_done, found)
+        threading.Thread(target=work, daemon=True).start()
+
+    def scan_done(self, found):
+        self.scanning = False
+        self.found = [d for d in found if d["mac"] not in self.paired]
+        self.scan_btn.set_label("Search again")
+        self.status.set_text("" if self.found else "No new devices found. Is it in pairing mode?")
+        self.refresh_once()
+        return False
+
+    def pair(self, dev):
+        self.pending = True
+        self.status.set_text("Pairing with " + dev["name"] + "…")
+
+        def work():
+            ok, _out = cmd_out(["bluetoothctl", "pair", dev["mac"]], 30)
+            if ok:
+                cmd_out(["bluetoothctl", "trust", dev["mac"]], 6)
+                ok, _out = cmd_out(["bluetoothctl", "connect", dev["mac"]], 20)
+            GLib.idle_add(self.pair_done, ok, dev)
+        threading.Thread(target=work, daemon=True).start()
+
+    def pair_done(self, ok, dev):
+        self.pending = None
+        self.status.set_text(("Paired with " if ok else "Could not pair with ") + dev["name"]
+                             + ("" if ok else ". Put it in pairing mode and try again."))
+        self.found = [d for d in self.found if d["mac"] != dev["mac"]]
+        self.refresh_once()
         return False
 
     def on_switch(self, _s, state):
@@ -1526,7 +1621,7 @@ class BluetoothWindow(ToolWindow, Dropdown):
             if state:
                 cmd_out(["rfkill", "unblock", "bluetooth"], 4)
             cmd_out(["bluetoothctl", "power", "on" if state else "off"], 8)
-            GLib.idle_add(self.refresh)
+            GLib.idle_add(self.refresh_once)
         threading.Thread(target=work, daemon=True).start()
         self.status.set_text("Turning Bluetooth on…" if state else "Turning Bluetooth off…")
         return False
@@ -1544,7 +1639,7 @@ class BluetoothWindow(ToolWindow, Dropdown):
         self.pending = None
         if not ok:
             self.status.set_text(f"Could not reach {dev['name']}. Is it switched on and close by?")
-        threading.Thread(target=self.read_state, daemon=True).start()
+        self.spawn_read(self.read_state)
         return False
 
 
@@ -1633,13 +1728,13 @@ class VolumeWindow(ToolWindow, Dropdown):
             self.body.append(more)
 
         self.setup_dropdown()
-        self.refresh()
+        GLib.idle_add(self.refresh_once)
         GLib.timeout_add_seconds(2, self.refresh)
 
     def refresh(self):
         if not self.get_visible():
             return False
-        threading.Thread(target=lambda: GLib.idle_add(self.show, read_volume(), read_sinks()), daemon=True).start()
+        self.spawn_read(lambda: GLib.idle_add(self.show, read_volume(), read_sinks()))
         return True
 
     def show(self, vol, sinks):
@@ -1689,12 +1784,12 @@ class VolumeWindow(ToolWindow, Dropdown):
         if not self.busy:
             self.last_touch = 0.0
             threading.Thread(target=lambda: (cmd_out(["wpctl", "set-mute", SINK, "1" if state else "0"], 3),
-                                             GLib.idle_add(self.refresh)), daemon=True).start()
+                                             GLib.idle_add(self.refresh_once)), daemon=True).start()
         return False
 
     def use_sink(self, sid):
         threading.Thread(target=lambda: (cmd_out(["wpctl", "set-default", sid], 4),
-                                         GLib.idle_add(self.refresh)), daemon=True).start()
+                                         GLib.idle_add(self.refresh_once)), daemon=True).start()
 
 
 # ---------------------------------------------------------------- the manual

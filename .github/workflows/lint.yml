@@ -43,6 +43,8 @@ jobs:
         run: bash tests/test-fix.sh
       - name: Install finish (no hangs)
         run: bash tests/test-finish.sh
+      - name: Wi-Fi, Bluetooth and Volume menus
+        run: bash tests/test-dropdowns.sh
       - name: Smoke-run every app (stubbed GTK)
         run: bash tests/test-smoke.sh
       - name: Xedit and Xview

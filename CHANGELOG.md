@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- **Wi-Fi, Bluetooth and Volume menus no longer freeze or crash.** Each menu kept re-reading its state in an endless loop; it now reads once when it opens and then every few seconds, one read at a time. The lists also fill in straight away instead of after a few seconds
+- **Bluetooth menu:** *Search for new devices* finds nearby devices and pairs, trusts and connects the one you click, without leaving the menu
+
 ## 0.1.0 - 2026-11-03
 The first release of Xlin-soft.
 
